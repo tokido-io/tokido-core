@@ -11,7 +11,7 @@
 
     <name>Tokido Core</name>
     <description>Production-grade MFA toolkit for Java — TOTP, recovery codes, extensible factors. GraalVM native-image ready.</description>
-    <url>https://github.com/ozimakov/tokido-core</url>
+    <url>https://github.com/tokido-io/tokido-core</url>
 
     <licenses>
         <license>
@@ -29,9 +29,9 @@
     </developers>
 
     <scm>
-        <url>https://github.com/ozimakov/tokido-core</url>
-        <connection>scm:git:git://github.com/ozimakov/tokido-core.git</connection>
-        <developerConnection>scm:git:ssh://git@github.com/ozimakov/tokido-core.git</developerConnection>
+        <url>https://github.com/tokido-io/tokido-core</url>
+        <connection>scm:git:git://github.com/tokido-io/tokido-core.git</connection>
+        <developerConnection>scm:git:ssh://git@github.com/tokido-io/tokido-core.git</developerConnection>
     </scm>
 
     <modules>

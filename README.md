@@ -2,7 +2,7 @@
 
 Production-grade MFA toolkit for Java. TOTP, recovery codes, extensible factors. GraalVM native-image ready.
 
-[![CI](https://github.com/ozimakov/tokido-core/actions/workflows/ci.yml/badge.svg)](https://github.com/ozimakov/tokido-core/actions/workflows/ci.yml)
+[![CI](https://github.com/tokido-io/tokido-core/actions/workflows/ci.yml/badge.svg)](https://github.com/tokido-io/tokido-core/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 ## Why tokido-core?
@@ -91,7 +91,7 @@ For testing, use `InMemorySecretStore` from `tokido-core-test`.
 ## Building
 
 ```bash
-git clone https://github.com/ozimakov/tokido-core.git
+git clone https://github.com/tokido-io/tokido-core.git
 cd tokido-core
 mvn verify
 ```
