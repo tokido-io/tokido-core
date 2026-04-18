@@ -1,0 +1,39 @@
+name: Bug Report
+description: Report a bug in tokido-core
+labels: [bug]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimal code or steps to reproduce the issue
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: tokido-core version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+  - type: input
+    id: java-version
+    attributes:
+      label: Java version
+      placeholder: "21"
+    validations:
+      required: true
