@@ -47,7 +47,7 @@ class TotpFactorProviderTest {
         assertTrue(store.hasSecret("user1", "totp"));
         StoredSecret stored = store.inspect("user1", "totp");
         assertEquals(20, stored.secret().length); // default secret length
-        assertEquals(false, stored.metadata().get("confirmed"));
+        assertNull(stored.metadata().get("confirmed")); // confirmed is set by the engine, not the provider
         assertEquals(-1L, ((Number) stored.metadata().get("lastCounter")).longValue());
     }
 

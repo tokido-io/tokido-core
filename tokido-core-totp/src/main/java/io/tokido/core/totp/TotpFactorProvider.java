@@ -14,8 +14,26 @@ import java.util.Map;
  * TOTP (Time-based One-Time Password) factor provider.
  * Implements RFC 6238 with replay protection, configurable time window,
  * and GraalVM-safe QR code generation.
- * <p>
- * Runtime dependency: {@code com.google.zxing:core} (lazily loaded on first enrollment).
+ *
+ * <p>This provider requires confirmation: after {@code MfaManager.enroll()}, the user must
+ * call {@code MfaManager.confirmEnrollment()} with a valid TOTP code before the factor
+ * becomes active for verification.
+ *
+ * <h2>Metadata written to SecretStore</h2>
+ * <ul>
+ *   <li>{@link SecretStore.Metadata#LAST_COUNTER} — set to {@code -1L} on enrollment;
+ *       updated to the accepted counter on each successful verification</li>
+ *   <li>{@link SecretStore.Metadata#CREATED_AT} — epoch-millisecond timestamp of enrollment</li>
+ *   <li>{@link SecretStore.Metadata#ACCOUNT_NAME} — account name used in the otpauth URI;
+ *       defaults to userId if not provided in the enrollment context</li>
+ *   <li>{@link SecretStore.Metadata#LAST_USED_AT} — epoch-millisecond timestamp of the most
+ *       recent successful verification; absent until first use</li>
+ * </ul>
+ *
+ * <p>Note: the {@link SecretStore.Metadata#CONFIRMED} flag is managed exclusively by the
+ * engine ({@code MfaManager}) and is never set by this provider.
+ *
+ * <p>Runtime dependency: {@code com.google.zxing:core} (lazily loaded on first enrollment).
  */
 public class TotpFactorProvider implements FactorProvider<TotpEnrollmentResult, TotpVerificationResult> {
 
@@ -60,10 +78,10 @@ public class TotpFactorProvider implements FactorProvider<TotpEnrollmentResult, 
         }
 
         Map<String, Object> metadata = new HashMap<>();
-        metadata.put("lastCounter", -1L);
-        metadata.put("confirmed", false);
-        metadata.put("createdAt", System.currentTimeMillis());
-        metadata.put("accountName", accountName);
+        metadata.put(SecretStore.Metadata.LAST_COUNTER, -1L);
+        metadata.put(SecretStore.Metadata.CREATED_AT, System.currentTimeMillis());
+        metadata.put(SecretStore.Metadata.ACCOUNT_NAME, accountName);
+        // Note: CONFIRMED is not set here — the engine sets it after store() returns.
 
         secretStore.store(userId, factorType(), secret, metadata);
 
@@ -85,7 +103,7 @@ public class TotpFactorProvider implements FactorProvider<TotpEnrollmentResult, 
         }
 
         byte[] secret = stored.secret();
-        long lastCounter = ((Number) stored.metadata().getOrDefault("lastCounter", -1L)).longValue();
+        long lastCounter = ((Number) stored.metadata().getOrDefault(SecretStore.Metadata.LAST_COUNTER, -1L)).longValue();
         long currentCounter = System.currentTimeMillis() / 1000L / config.timeStepSeconds();
 
         for (long c = currentCounter - config.windowSize(); c <= currentCounter + config.windowSize(); c++) {
@@ -95,8 +113,8 @@ public class TotpFactorProvider implements FactorProvider<TotpEnrollmentResult, 
                     return new TotpVerificationResult(false, "replay");
                 }
                 secretStore.update(userId, factorType(), Map.of(
-                        "lastCounter", c,
-                        "lastUsedAt", System.currentTimeMillis()
+                        SecretStore.Metadata.LAST_COUNTER, c,
+                        SecretStore.Metadata.LAST_USED_AT, System.currentTimeMillis()
                 ));
                 return new TotpVerificationResult(true, null);
             }
@@ -115,16 +133,16 @@ public class TotpFactorProvider implements FactorProvider<TotpEnrollmentResult, 
         if (stored == null) {
             return FactorStatus.notEnrolled();
         }
-        Boolean confirmed = (Boolean) stored.metadata().getOrDefault("confirmed", true);
+        Boolean confirmed = (Boolean) stored.metadata().getOrDefault(SecretStore.Metadata.CONFIRMED, false);
         Map<String, Object> attrs = new HashMap<>();
-        attrs.put("createdAt", stored.metadata().get("createdAt"));
-        Object lastUsedAt = stored.metadata().get("lastUsedAt");
+        attrs.put(SecretStore.Metadata.CREATED_AT, stored.metadata().get(SecretStore.Metadata.CREATED_AT));
+        Object lastUsedAt = stored.metadata().get(SecretStore.Metadata.LAST_USED_AT);
         if (lastUsedAt != null) {
-            attrs.put("lastUsedAt", lastUsedAt);
+            attrs.put(SecretStore.Metadata.LAST_USED_AT, lastUsedAt);
         }
-        Object accountName = stored.metadata().get("accountName");
+        Object accountName = stored.metadata().get(SecretStore.Metadata.ACCOUNT_NAME);
         if (accountName != null) {
-            attrs.put("accountName", accountName);
+            attrs.put(SecretStore.Metadata.ACCOUNT_NAME, accountName);
         }
         return new FactorStatus(true, confirmed, Map.copyOf(attrs));
     }

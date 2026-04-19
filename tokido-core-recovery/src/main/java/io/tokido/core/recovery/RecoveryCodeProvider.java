@@ -11,8 +11,19 @@ import java.util.*;
 /**
  * Recovery code factor provider. Generates single-use backup codes
  * with bcrypt hashing for safe storage.
- * <p>
- * Runtime dependency: {@code org.mindrot:jbcrypt} (lazily loaded on first enrollment).
+ *
+ * <p>This provider does not require confirmation — codes are active immediately after enrollment.
+ *
+ * <h2>Metadata written to SecretStore</h2>
+ * <ul>
+ *   <li>{@link SecretStore.Metadata#HASHED_CODES} — {@code List<String>} of bcrypt-hashed codes;
+ *       each successful verification removes the matched code from the list</li>
+ *   <li>{@link SecretStore.Metadata#CREATED_AT} — epoch-millisecond timestamp of enrollment</li>
+ *   <li>{@link SecretStore.Metadata#LAST_USED_AT} — epoch-millisecond timestamp of the most
+ *       recent successful verification; absent until first use</li>
+ * </ul>
+ *
+ * <p>Runtime dependency: {@code org.mindrot:jbcrypt} (lazily loaded on first enrollment).
  */
 public class RecoveryCodeProvider implements FactorProvider<RecoveryEnrollmentResult, RecoveryVerificationResult> {
 
@@ -56,8 +67,8 @@ public class RecoveryCodeProvider implements FactorProvider<RecoveryEnrollmentRe
         }
 
         Map<String, Object> metadata = new HashMap<>();
-        metadata.put("hashedCodes", hashedCodes);
-        metadata.put("createdAt", System.currentTimeMillis());
+        metadata.put(SecretStore.Metadata.HASHED_CODES, hashedCodes);
+        metadata.put(SecretStore.Metadata.CREATED_AT, System.currentTimeMillis());
 
         secretStore.store(userId, factorType(), new byte[0], metadata);
 
@@ -72,14 +83,14 @@ public class RecoveryCodeProvider implements FactorProvider<RecoveryEnrollmentRe
             throw new NotEnrolledException(userId, factorType());
         }
 
-        List<String> hashedCodes = new ArrayList<>((List<String>) stored.metadata().get("hashedCodes"));
+        List<String> hashedCodes = new ArrayList<>((List<String>) stored.metadata().get(SecretStore.Metadata.HASHED_CODES));
 
         for (int i = 0; i < hashedCodes.size(); i++) {
             if (BCrypt.checkpw(credential, hashedCodes.get(i))) {
                 hashedCodes.remove(i);
                 secretStore.update(userId, factorType(), Map.of(
-                        "hashedCodes", hashedCodes,
-                        "lastUsedAt", System.currentTimeMillis()
+                        SecretStore.Metadata.HASHED_CODES, hashedCodes,
+                        SecretStore.Metadata.LAST_USED_AT, System.currentTimeMillis()
                 ));
                 return new RecoveryVerificationResult(true, hashedCodes.size());
             }
@@ -99,13 +110,13 @@ public class RecoveryCodeProvider implements FactorProvider<RecoveryEnrollmentRe
         if (stored == null) {
             return FactorStatus.notEnrolled();
         }
-        List<String> hashedCodes = (List<String>) stored.metadata().getOrDefault("hashedCodes", List.of());
+        List<String> hashedCodes = (List<String>) stored.metadata().getOrDefault(SecretStore.Metadata.HASHED_CODES, List.of());
         Map<String, Object> attrs = new HashMap<>();
         attrs.put("codesRemaining", hashedCodes.size());
-        attrs.put("createdAt", stored.metadata().get("createdAt"));
-        Object lastUsedAt = stored.metadata().get("lastUsedAt");
+        attrs.put(SecretStore.Metadata.CREATED_AT, stored.metadata().get(SecretStore.Metadata.CREATED_AT));
+        Object lastUsedAt = stored.metadata().get(SecretStore.Metadata.LAST_USED_AT);
         if (lastUsedAt != null) {
-            attrs.put("lastUsedAt", lastUsedAt);
+            attrs.put(SecretStore.Metadata.LAST_USED_AT, lastUsedAt);
         }
         return new FactorStatus(true, true, Map.copyOf(attrs));
     }
