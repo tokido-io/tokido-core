@@ -9,4 +9,8 @@ import io.tokido.core.VerificationResult;
  * @param reason null on success; "invalid" for wrong code, "replay" for reused code
  */
 public record TotpVerificationResult(boolean valid, String reason) implements VerificationResult {
+    @Override
+    public java.util.Optional<String> failureReason() {
+        return java.util.Optional.ofNullable(reason);
+    }
 }

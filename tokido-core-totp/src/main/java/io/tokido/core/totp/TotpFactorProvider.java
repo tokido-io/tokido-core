@@ -63,6 +63,7 @@ public class TotpFactorProvider implements FactorProvider<TotpEnrollmentResult, 
         metadata.put("lastCounter", -1L);
         metadata.put("confirmed", false);
         metadata.put("createdAt", System.currentTimeMillis());
+        metadata.put("accountName", accountName);
 
         secretStore.store(userId, factorType(), secret, metadata);
 
@@ -120,6 +121,10 @@ public class TotpFactorProvider implements FactorProvider<TotpEnrollmentResult, 
         Object lastUsedAt = stored.metadata().get("lastUsedAt");
         if (lastUsedAt != null) {
             attrs.put("lastUsedAt", lastUsedAt);
+        }
+        Object accountName = stored.metadata().get("accountName");
+        if (accountName != null) {
+            attrs.put("accountName", accountName);
         }
         return new FactorStatus(true, confirmed, Map.copyOf(attrs));
     }
