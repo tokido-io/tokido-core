@@ -183,5 +183,9 @@ public class MfaManager {
      * Simple verification result used internally for lifecycle rejections (e.g., unconfirmed).
      */
     record SimpleVerificationResult(boolean valid, String reason) implements VerificationResult {
+        @Override
+        public java.util.Optional<String> failureReason() {
+            return java.util.Optional.ofNullable(reason);
+        }
     }
 }
