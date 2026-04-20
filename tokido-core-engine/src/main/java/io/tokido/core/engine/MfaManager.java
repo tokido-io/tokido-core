@@ -212,14 +212,7 @@ public class MfaManager {
      * @throws FactorNotRegisteredException if the factor type is not registered
      */
     public FactorStatus status(String userId, String factorType) {
-        requireFactor(factorType);
-
-        StoredSecret stored = secretStore.load(userId, factorType);
-        if (stored == null) {
-            return FactorStatus.notEnrolled();
-        }
-
-        FactorProvider<?, ?> provider = factors.get(factorType);
+        FactorProvider<?, ?> provider = requireFactor(factorType);
         return provider.status(userId);
     }
 
