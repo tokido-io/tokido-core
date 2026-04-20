@@ -28,6 +28,12 @@
             <artifactId>tokido-core-test</artifactId>
         </dependency>
         <dependency>
+            <groupId>io.tokido</groupId>
+            <artifactId>tokido-core-engine</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
         </dependency>
