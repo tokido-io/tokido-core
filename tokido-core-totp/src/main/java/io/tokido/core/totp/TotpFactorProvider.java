@@ -15,9 +15,11 @@ import java.util.Map;
  * Implements RFC 6238 with replay protection, configurable time window,
  * and GraalVM-safe QR code generation.
  *
- * <p>This provider requires confirmation: after {@code MfaManager.enroll()}, the user must
+ * <p>By default this provider requires confirmation: after {@code MfaManager.enroll()}, the user must
  * call {@code MfaManager.confirmEnrollment()} with a valid TOTP code before the factor
  * becomes active for verification.
+ * Use {@link TotpConfig#requiresConfirmation(boolean)} with {@code false} for server-side
+ * provisioning flows where the factor should be active immediately.
  *
  * <h2>Metadata written to SecretStore</h2>
  * <ul>
@@ -56,7 +58,7 @@ public class TotpFactorProvider implements FactorProvider<TotpEnrollmentResult, 
 
     @Override
     public boolean requiresConfirmation() {
-        return true;
+        return config.requiresConfirmation();
     }
 
     @Override
@@ -133,7 +135,13 @@ public class TotpFactorProvider implements FactorProvider<TotpEnrollmentResult, 
         if (stored == null) {
             return FactorStatus.notEnrolled();
         }
-        Boolean confirmed = (Boolean) stored.metadata().getOrDefault(SecretStore.Metadata.CONFIRMED, false);
+        boolean confirmed;
+        if (!requiresConfirmation()) {
+            confirmed = true;
+        } else {
+            Boolean c = (Boolean) stored.metadata().get(SecretStore.Metadata.CONFIRMED);
+            confirmed = c != null && c;
+        }
         Map<String, Object> attrs = new HashMap<>();
         attrs.put(SecretStore.Metadata.CREATED_AT, stored.metadata().get(SecretStore.Metadata.CREATED_AT));
         Object lastUsedAt = stored.metadata().get(SecretStore.Metadata.LAST_USED_AT);

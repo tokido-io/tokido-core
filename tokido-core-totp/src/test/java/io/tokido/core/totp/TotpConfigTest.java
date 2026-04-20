@@ -3,6 +3,8 @@ package io.tokido.core.totp;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TotpConfigTest {
 
@@ -15,6 +17,7 @@ class TotpConfigTest {
         assertEquals(1, config.windowSize());
         assertEquals("HmacSHA1", config.algorithm());
         assertEquals("App", config.issuer());
+        assertTrue(config.requiresConfirmation());
     }
 
     @Test
@@ -33,5 +36,11 @@ class TotpConfigTest {
         assertEquals(2, config.windowSize());
         assertEquals("HmacSHA256", config.algorithm());
         assertEquals("MyApp", config.issuer());
+    }
+
+    @Test
+    void requiresConfirmationCanBeDisabled() {
+        TotpConfig config = TotpConfig.defaults().requiresConfirmation(false);
+        assertFalse(config.requiresConfirmation());
     }
 }

@@ -29,6 +29,15 @@ class TotpFactorProviderTest {
     }
 
     @Test
+    void requiresConfirmationFollowsConfig() {
+        TotpFactorProvider strict = new TotpFactorProvider(TotpConfig.defaults(), store);
+        assertTrue(strict.requiresConfirmation());
+
+        TotpFactorProvider immediate = new TotpFactorProvider(TotpConfig.defaults().requiresConfirmation(false), store);
+        assertFalse(immediate.requiresConfirmation());
+    }
+
+    @Test
     void enrollGeneratesSecretAndQrCode() {
         TotpEnrollmentResult result = provider.enroll("user1", EnrollmentContext.empty());
 
