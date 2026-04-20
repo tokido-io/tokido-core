@@ -12,6 +12,7 @@ Thank you for your interest in contributing. This document covers everything you
 - [Pull requests](#pull-requests)
 - [Code style](#code-style)
 - [Testing requirements](#testing-requirements)
+- [CI / GitHub Actions](#ci--github-actions)
 - [Adding a new factor provider](#adding-a-new-factor-provider)
 - [Commit messages](#commit-messages)
 - [Review process](#review-process)
@@ -156,6 +157,12 @@ tokido-core has a deliberately minimal style. There is no formatter enforced by 
 - Use `InMemorySecretStore` and `CollectingAuditSink` from `tokido-core-test` for unit tests.
 - Integration tests that depend on external systems are not part of this repo.
 - Test method names describe behavior, not implementation: `enrollStoresAccountName()`, not `testEnroll()`.
+
+---
+
+## CI / GitHub Actions
+
+JavaScript actions that run on **Node 24** need a GitHub Actions runner that bundles Node 24 support. **Self-hosted runners** must run [`actions/runner`](https://github.com/actions/runner) **v2.328.0 or newer**; older runners cannot execute those actions. GitHub documents this in the [Node 20 deprecation / Node 24 rollout changelog](https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/).
 
 ---
 
