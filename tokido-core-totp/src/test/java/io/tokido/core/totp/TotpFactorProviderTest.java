@@ -5,6 +5,9 @@ import io.tokido.core.test.InMemorySecretStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashSet;
+import java.util.Set;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 class TotpFactorProviderTest {
@@ -95,10 +98,29 @@ class TotpFactorProviderTest {
     void verifyRejectsWrongCode() {
         provider.enroll("user1", EnrollmentContext.empty());
 
-        TotpVerificationResult result = provider.verify("user1", "000000", VerificationContext.empty());
-        // This might pass if 000000 happens to be valid, but statistically improbable
-        // We test the flow, not the exact value
-        assertNotNull(result);
+        StoredSecret stored = store.inspect("user1", "totp");
+        byte[] secret = stored.secret();
+        TotpConfig cfg = TotpConfig.defaults();
+        long currentCounter = System.currentTimeMillis() / 1000L / cfg.timeStepSeconds();
+        int w = cfg.windowSize();
+        // Codes that could match within window, plus one step on each side for clock drift.
+        Set<Integer> possible = new HashSet<>();
+        for (long c = currentCounter - w - 1; c <= currentCounter + w + 1; c++) {
+            possible.add(TotpAlgorithm.generate(secret, c, cfg));
+        }
+        int wrong = -1;
+        for (int candidate = 0; candidate < 1_000_000; candidate++) {
+            if (!possible.contains(candidate)) {
+                wrong = candidate;
+                break;
+            }
+        }
+        assertTrue(wrong >= 0, "expected at least one 6-digit code outside the verification window");
+
+        String codeStr = String.format("%06d", wrong);
+        TotpVerificationResult result = provider.verify("user1", codeStr, VerificationContext.empty());
+        assertFalse(result.valid());
+        assertEquals("invalid", result.reason());
     }
 
     @Test
