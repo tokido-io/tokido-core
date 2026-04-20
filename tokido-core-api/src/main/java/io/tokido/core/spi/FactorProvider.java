@@ -42,9 +42,11 @@ public interface FactorProvider<E extends EnrollmentResult, V extends Verificati
     /**
      * Verify a credential for this factor.
      * <p>
-     * The {@link VerificationContext} carries provider-specific properties. Built-in Tokido
-     * providers ignore {@link VerificationContext#properties()}; custom implementations should
-     * document which keys they read and their types.
+     * The {@link VerificationContext} carries provider-specific properties. The MFA engine passes
+     * {@link VerificationContext#enrollmentConfirmation()} for enrollment confirmation; factors
+     * that persist replay or consumption state must not update that state when that context is
+     * used. Other built-in providers ignore {@link VerificationContext#properties()};
+     * custom implementations should document which keys they read and their types.
      */
     V verify(String userId, String credential, VerificationContext ctx);
 

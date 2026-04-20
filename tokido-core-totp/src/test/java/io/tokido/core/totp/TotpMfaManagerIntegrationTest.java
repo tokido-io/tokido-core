@@ -58,5 +58,34 @@ class TotpMfaManagerIntegrationTest {
         assertTrue(st.enrolled());
         assertTrue(st.confirmed());
     }
+
+    @Test
+    void confirmEnrollmentDoesNotAdvanceTotpReplayStateSoVerifyAcceptsSameCode() {
+        InMemorySecretStore store = new InMemorySecretStore();
+        TotpConfig config = TotpConfig.defaults().issuer("App");
+        TotpFactorProvider totp = new TotpFactorProvider(config, store);
+        MfaManager mfa = MfaManager.builder().secretStore(store).factor(totp).build();
+
+        mfa.enroll("u1", "totp", EnrollmentContext.empty());
+
+        StoredSecret enrolled = store.inspect("u1", "totp");
+        byte[] secret = enrolled.secret();
+        long counter = System.currentTimeMillis() / 1000L / config.timeStepSeconds();
+        String code = String.format("%06d", TotpAlgorithm.generate(secret, counter, config));
+
+        VerificationResult confirmResult = mfa.confirmEnrollment("u1", "totp", code);
+        assertTrue(confirmResult.valid());
+
+        StoredSecret afterConfirm = store.inspect("u1", "totp");
+        assertEquals(-1L, ((Number) afterConfirm.metadata().get(SecretStore.Metadata.LAST_COUNTER)).longValue());
+        assertNull(afterConfirm.metadata().get(SecretStore.Metadata.LAST_USED_AT));
+
+        VerificationResult verifyResult = mfa.verify("u1", "totp", code);
+        assertTrue(verifyResult.valid());
+
+        VerificationResult replayResult = mfa.verify("u1", "totp", code);
+        assertFalse(replayResult.valid());
+        assertEquals("replay", replayResult.failureReason().orElse(null));
+    }
 }
 

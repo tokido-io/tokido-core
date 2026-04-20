@@ -108,7 +108,8 @@ public class MfaManager {
      * <p>SecretStore calls made during this operation:
      * <ol>
      *   <li>{@code load()} — reads current state including {@code confirmed} flag</li>
-     *   <li>Provider verifies credential internally (no store calls)</li>
+     *   <li>Provider verifies credential internally without persisting verification progress
+     *       (e.g. TOTP does not advance {@code lastCounter} / {@code lastUsedAt} here)</li>
      *   <li>On success: {@code update({confirmed: true})}</li>
      * </ol>
      *
@@ -133,7 +134,7 @@ public class MfaManager {
                     .formatted(userId, factorType));
         }
 
-        VerificationResult result = provider.verify(userId, credential, VerificationContext.empty());
+        VerificationResult result = provider.verify(userId, credential, VerificationContext.enrollmentConfirmation());
         if (result.valid()) {
             secretStore.update(userId, factorType, Map.of(SecretStore.Metadata.CONFIRMED, true));
             audit(userId, factorType, "confirmed");
