@@ -67,7 +67,7 @@ public class TotpFactorProvider implements FactorProvider<TotpEnrollmentResult, 
         new SecureRandom().nextBytes(secret);
 
         String base32Secret = Base32.encode(secret);
-        String accountName = (String) ctx.properties().getOrDefault("accountName", userId);
+        String accountName = resolveAccountName(userId, ctx);
         String secretUri = "otpauth://totp/" + urlEncode(accountName)
                 + "?secret=" + base32Secret
                 + "&issuer=" + urlEncode(config.issuer());
@@ -153,6 +153,19 @@ public class TotpFactorProvider implements FactorProvider<TotpEnrollmentResult, 
             attrs.put(SecretStore.Metadata.ACCOUNT_NAME, accountName);
         }
         return new FactorStatus(true, confirmed, Map.copyOf(attrs));
+    }
+
+    private static String resolveAccountName(String userId, EnrollmentContext ctx) {
+        Object v = ctx.properties().get(SecretStore.Metadata.ACCOUNT_NAME);
+        if (v instanceof String s) {
+            return s;
+        }
+        // Backward compatibility with the pre-Metadata constant usage.
+        Object legacy = ctx.properties().get("accountName");
+        if (legacy instanceof String s) {
+            return s;
+        }
+        return userId;
     }
 
     private static String urlEncode(String value) {
