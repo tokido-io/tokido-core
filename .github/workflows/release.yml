@@ -33,6 +33,15 @@ jobs:
       - name: Build and verify
         run: mvn verify
 
+      - name: Verify source and Javadoc artifacts
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          for m in tokido-core-api tokido-core-test tokido-core-engine tokido-core-totp tokido-core-recovery; do
+            test -f "$m/target/${m}-${VERSION}-sources.jar"
+            test -f "$m/target/${m}-${VERSION}-javadoc.jar"
+          done
+
       - name: Publish to Maven Central
         run: mvn deploy -P release -DskipTests
         env:
