@@ -31,7 +31,8 @@ import java.util.function.Function;
  *       advancing replay state)</li>
  *   <li>{@link SecretStore.Metadata#CREATED_AT} — epoch-millisecond timestamp of enrollment</li>
  *   <li>{@link SecretStore.Metadata#ACCOUNT_NAME} — account name used in the otpauth URI;
- *       defaults to userId if not provided in the enrollment context</li>
+ *       defaults to userId if not provided in the enrollment context. This value is not included
+ *       in {@link #status(String)} attributes (it is often PII such as an email address).</li>
  *   <li>{@link SecretStore.Metadata#LAST_USED_AT} — epoch-millisecond timestamp of the most
  *       recent successful verification; absent until first use</li>
  * </ul>
@@ -167,10 +168,6 @@ public class TotpFactorProvider implements FactorProvider<TotpEnrollmentResult, 
         Object lastUsedAt = stored.metadata().get(SecretStore.Metadata.LAST_USED_AT);
         if (lastUsedAt != null) {
             attrs.put(SecretStore.Metadata.LAST_USED_AT, lastUsedAt);
-        }
-        Object accountName = stored.metadata().get(SecretStore.Metadata.ACCOUNT_NAME);
-        if (accountName != null) {
-            attrs.put(SecretStore.Metadata.ACCOUNT_NAME, accountName);
         }
         return new FactorStatus(true, confirmed, Map.copyOf(attrs));
     }

@@ -193,6 +193,17 @@ class TotpFactorProviderTest {
     }
 
     @Test
+    void statusDoesNotExposeAccountName() {
+        provider.enroll("user1",
+                EnrollmentContext.of(SecretStore.Metadata.ACCOUNT_NAME, "alice@example.com"));
+        StoredSecret stored = store.inspect("user1", "totp");
+        assertEquals("alice@example.com", stored.metadata().get(SecretStore.Metadata.ACCOUNT_NAME));
+
+        FactorStatus status = provider.status("user1");
+        assertFalse(status.attributes().containsKey(SecretStore.Metadata.ACCOUNT_NAME));
+    }
+
+    @Test
     void verifyUpdatesLastUsedAt() {
         provider.enroll("user1", EnrollmentContext.empty());
         StoredSecret stored = store.inspect("user1", "totp");
