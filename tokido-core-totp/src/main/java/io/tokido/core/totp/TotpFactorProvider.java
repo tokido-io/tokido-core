@@ -9,6 +9,8 @@ import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
 
 /**
  * TOTP (Time-based One-Time Password) factor provider.
@@ -36,19 +38,31 @@ import java.util.Map;
  * engine ({@code MfaManager}) and is never set by this provider.
  *
  * <p>Runtime dependency: {@code com.google.zxing:core} (lazily loaded on first enrollment).
+ *
+ * <p>Enrollment order: the otpauth URI is built, a QR PNG is generated, then the secret is stored.
+ * If QR generation fails, {@link TotpQrCodeGenerationException} is thrown and nothing is persisted.
  */
 public class TotpFactorProvider implements FactorProvider<TotpEnrollmentResult, TotpVerificationResult> {
 
     private final TotpConfig config;
     private final SecretStore secretStore;
+    private final Function<String, String> qrToPngBase64;
 
     public TotpFactorProvider(TotpConfig config, SecretStore secretStore) {
-        this.config = config;
-        this.secretStore = secretStore;
+        this(config, secretStore, QrCodeGenerator::toPngBase64);
     }
 
     public TotpFactorProvider(SecretStore secretStore) {
         this(TotpConfig.defaults(), secretStore);
+    }
+
+    /**
+     * Package-private for tests: supply a function that maps otpauth URIs to base64 PNG data.
+     */
+    TotpFactorProvider(TotpConfig config, SecretStore secretStore, Function<String, String> qrToPngBase64) {
+        this.config = config;
+        this.secretStore = secretStore;
+        this.qrToPngBase64 = Objects.requireNonNull(qrToPngBase64, "qrToPngBase64");
     }
 
     @Override
@@ -74,9 +88,11 @@ public class TotpFactorProvider implements FactorProvider<TotpEnrollmentResult, 
 
         String qrCodeBase64;
         try {
-            qrCodeBase64 = QrCodeGenerator.toPngBase64(secretUri);
+            qrCodeBase64 = qrToPngBase64.apply(secretUri);
+        } catch (TotpQrCodeGenerationException e) {
+            throw e;
         } catch (RuntimeException e) {
-            qrCodeBase64 = "";
+            throw new TotpQrCodeGenerationException(secretUri, e);
         }
 
         Map<String, Object> metadata = new HashMap<>();
