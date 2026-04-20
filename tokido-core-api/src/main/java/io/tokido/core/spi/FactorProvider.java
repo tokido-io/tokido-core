@@ -41,6 +41,10 @@ public interface FactorProvider<E extends EnrollmentResult, V extends Verificati
 
     /**
      * Verify a credential for this factor.
+     * <p>
+     * The {@link VerificationContext} carries provider-specific properties. Built-in Tokido
+     * providers ignore {@link VerificationContext#properties()}; custom implementations should
+     * document which keys they read and their types.
      */
     V verify(String userId, String credential, VerificationContext ctx);
 
