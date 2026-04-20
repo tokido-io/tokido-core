@@ -1,6 +1,7 @@
 package io.tokido.core.totp;
 
 import io.tokido.core.*;
+import io.tokido.core.spi.SecretStore;
 import io.tokido.core.test.InMemorySecretStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -229,5 +230,30 @@ class TotpFactorProviderTest {
 
         TotpVerificationResult result = provider.verify("user1", codeStr, VerificationContext.empty());
         assertTrue(result.valid());
+    }
+
+    @Test
+    void verifyWithEnrollmentConfirmationContextDoesNotPersistReplayState() {
+        provider.enroll("user1", EnrollmentContext.empty());
+
+        StoredSecret stored = store.inspect("user1", "totp");
+        byte[] secret = stored.secret();
+        long counter = System.currentTimeMillis() / 1000L / 30L;
+        int code = TotpAlgorithm.generate(secret, counter, TotpConfig.defaults());
+        String codeStr = String.format("%06d", code);
+
+        TotpVerificationResult confirm = provider.verify("user1", codeStr, VerificationContext.enrollmentConfirmation());
+        assertTrue(confirm.valid());
+
+        StoredSecret afterConfirm = store.inspect("user1", "totp");
+        assertEquals(-1L, ((Number) afterConfirm.metadata().get(SecretStore.Metadata.LAST_COUNTER)).longValue());
+        assertNull(afterConfirm.metadata().get(SecretStore.Metadata.LAST_USED_AT));
+
+        TotpVerificationResult firstVerify = provider.verify("user1", codeStr, VerificationContext.empty());
+        assertTrue(firstVerify.valid());
+
+        TotpVerificationResult replay = provider.verify("user1", codeStr, VerificationContext.empty());
+        assertFalse(replay.valid());
+        assertEquals("replay", replay.reason());
     }
 }

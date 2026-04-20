@@ -24,7 +24,9 @@ import java.util.Map;
  * <h2>Metadata written to SecretStore</h2>
  * <ul>
  *   <li>{@link SecretStore.Metadata#LAST_COUNTER} — set to {@code -1L} on enrollment;
- *       updated to the accepted counter on each successful verification</li>
+ *       updated to the accepted counter on each successful {@code MfaManager#verify} (not when
+ *       validating during {@code MfaManager#confirmEnrollment}, which checks the code without
+ *       advancing replay state)</li>
  *   <li>{@link SecretStore.Metadata#CREATED_AT} — epoch-millisecond timestamp of enrollment</li>
  *   <li>{@link SecretStore.Metadata#ACCOUNT_NAME} — account name used in the otpauth URI;
  *       defaults to userId if not provided in the enrollment context</li>
@@ -114,10 +116,12 @@ public class TotpFactorProvider implements FactorProvider<TotpEnrollmentResult, 
                 if (c <= lastCounter) {
                     return new TotpVerificationResult(false, "replay");
                 }
-                secretStore.update(userId, factorType(), Map.of(
-                        SecretStore.Metadata.LAST_COUNTER, c,
-                        SecretStore.Metadata.LAST_USED_AT, System.currentTimeMillis()
-                ));
+                if (VerificationContext.shouldPersistVerificationProgress(ctx)) {
+                    secretStore.update(userId, factorType(), Map.of(
+                            SecretStore.Metadata.LAST_COUNTER, c,
+                            SecretStore.Metadata.LAST_USED_AT, System.currentTimeMillis()
+                    ));
+                }
                 return new TotpVerificationResult(true, null);
             }
         }

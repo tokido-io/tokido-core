@@ -31,7 +31,8 @@ import java.util.Map;
  * <h3>MfaManager.confirmEnrollment(userId, factorType, credential)</h3>
  * <ol>
  *   <li>{@link #load(String, String)} — reads current state including {@code confirmed} flag</li>
- *   <li>Factor provider verifies the credential internally (no store calls)</li>
+ *   <li>Factor provider verifies the credential internally without persisting verification progress
+ *       (e.g. TOTP does not write {@code lastCounter} / {@code lastUsedAt} during this step)</li>
  *   <li>On success: {@link #update(String, String, Map)} with {@code {confirmed: true}}</li>
  *   <li>On failure: no store calls</li>
  * </ol>
