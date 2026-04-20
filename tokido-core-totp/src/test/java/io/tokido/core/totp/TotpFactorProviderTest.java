@@ -1,6 +1,7 @@
 package io.tokido.core.totp;
 
 import io.tokido.core.*;
+import io.tokido.core.spi.SecretStore;
 import io.tokido.core.test.InMemorySecretStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -149,6 +150,17 @@ class TotpFactorProviderTest {
         assertTrue(status.enrolled());
         assertFalse(status.confirmed()); // not yet confirmed
         assertNotNull(status.attributes().get("createdAt"));
+    }
+
+    @Test
+    void statusDoesNotExposeAccountName() {
+        provider.enroll("user1",
+                EnrollmentContext.of(SecretStore.Metadata.ACCOUNT_NAME, "alice@example.com"));
+        StoredSecret stored = store.inspect("user1", "totp");
+        assertEquals("alice@example.com", stored.metadata().get(SecretStore.Metadata.ACCOUNT_NAME));
+
+        FactorStatus status = provider.status("user1");
+        assertFalse(status.attributes().containsKey(SecretStore.Metadata.ACCOUNT_NAME));
     }
 
     @Test
