@@ -54,6 +54,24 @@ class TotpFactorProviderTest {
     }
 
     @Test
+    void enrollThrowsWhenQrGenerationFailsAndDoesNotStoreSecret() {
+        TotpFactorProvider failing = new TotpFactorProvider(
+                TotpConfig.defaults().issuer("TestApp"),
+                store,
+                uri -> {
+                    throw new RuntimeException("simulated QR failure");
+                });
+
+        TotpQrCodeGenerationException ex = assertThrows(TotpQrCodeGenerationException.class,
+                () -> failing.enroll("user1", EnrollmentContext.empty()));
+
+        assertNotNull(ex.secretUri());
+        assertTrue(ex.secretUri().startsWith("otpauth://totp/"));
+        assertEquals("simulated QR failure", ex.getCause().getMessage());
+        assertFalse(store.hasSecret("user1", "totp"));
+    }
+
+    @Test
     void enrollStoresSecret() {
         provider.enroll("user1", EnrollmentContext.empty());
 
