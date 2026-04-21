@@ -17,7 +17,7 @@ class TotpConfigTest {
         assertEquals(1, config.windowSize());
         assertEquals("HmacSHA1", config.algorithm());
         assertEquals("App", config.issuer());
-        assertTrue(config.requiresConfirmation());
+        assertFalse(config.requiresConfirmation());
     }
 
     @Test

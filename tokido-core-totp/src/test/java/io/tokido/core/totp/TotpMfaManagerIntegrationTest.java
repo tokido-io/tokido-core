@@ -62,7 +62,7 @@ class TotpMfaManagerIntegrationTest {
     @Test
     void confirmEnrollmentDoesNotAdvanceTotpReplayStateSoVerifyAcceptsSameCode() {
         InMemorySecretStore store = new InMemorySecretStore();
-        TotpConfig config = TotpConfig.defaults().issuer("App");
+        TotpConfig config = TotpConfig.defaults().requiresConfirmation(true).issuer("App");
         TotpFactorProvider totp = new TotpFactorProvider(config, store);
         MfaManager mfa = MfaManager.builder().secretStore(store).factor(totp).build();
 
