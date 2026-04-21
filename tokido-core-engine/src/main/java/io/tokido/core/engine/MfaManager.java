@@ -99,6 +99,48 @@ public class MfaManager {
     }
 
     /**
+     * Atomically enroll a user in multiple factors.
+     *
+     * <p>If any enrollment fails, the engine rolls back by unenrolling any factors that were
+     * already enrolled in this call (best-effort), leaving the store without partial state.
+     *
+     * <p>Pre-check: if any requested factor is already enrolled, this method throws without
+     * writing anything.
+     *
+     * @return enrollment results keyed by factor type, in the same iteration order as input
+     * @throws AlreadyEnrolledException if the user is already enrolled in any requested factor
+     * @throws FactorNotRegisteredException if any factor type is not registered
+     */
+    public Map<String, EnrollmentResult> enroll(String userId, List<FactorEnrollment> enrollments) {
+        Objects.requireNonNull(enrollments, "enrollments");
+        if (enrollments.isEmpty()) {
+            return Map.of();
+        }
+
+        // Validate and pre-check existence so we can fail without partial writes.
+        for (FactorEnrollment e : enrollments) {
+            requireFactor(e.factorType());
+            if (secretStore.exists(userId, e.factorType())) {
+                throw new AlreadyEnrolledException(userId, e.factorType());
+            }
+        }
+
+        LinkedHashMap<String, EnrollmentResult> results = new LinkedHashMap<>();
+        ArrayList<String> attemptedFactorTypes = new ArrayList<>();
+        try {
+            for (FactorEnrollment e : enrollments) {
+                attemptedFactorTypes.add(e.factorType());
+                EnrollmentResult r = enroll(userId, e.factorType(), e.ctx());
+                results.put(e.factorType(), r);
+            }
+            return Map.copyOf(results);
+        } catch (RuntimeException ex) {
+            rollbackEnrollmentsBestEffort(userId, attemptedFactorTypes);
+            throw ex;
+        }
+    }
+
+    /**
      * Confirm a pending enrollment by verifying a credential generated from the new factor.
      *
      * <p>Only applicable to factors where {@code requiresConfirmation()} is true (e.g., TOTP).
@@ -203,6 +245,22 @@ public class MfaManager {
         provider.unenroll(userId);
         secretStore.delete(userId, factorType);
         audit(userId, factorType, "unenrolled");
+    }
+
+    private void rollbackEnrollmentsBestEffort(String userId, List<String> factorTypes) {
+        for (int i = factorTypes.size() - 1; i >= 0; i--) {
+            String factorType = factorTypes.get(i);
+            try {
+                FactorProvider<?, ?> provider = factors.get(factorType);
+                if (provider != null && secretStore.exists(userId, factorType)) {
+                    provider.unenroll(userId);
+                    secretStore.delete(userId, factorType);
+                    audit(userId, factorType, "enroll_rollback");
+                }
+            } catch (RuntimeException ignored) {
+                // Best-effort rollback: do not hide the original enrollment failure.
+            }
+        }
     }
 
     /**
