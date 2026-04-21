@@ -208,7 +208,9 @@ public class MfaManager {
     /**
      * Query the enrollment status for a user and factor.
      *
-     * <p>SecretStore calls: {@code load()}.
+     * <p>This delegates to {@link FactorProvider#status(String)} of the registered provider.
+     * The returned {@link FactorStatus#attributes()} map is factor-specific; see {@link FactorStatus}
+     * for the built-in attribute keys.
      *
      * @throws FactorNotRegisteredException if the factor type is not registered
      */
