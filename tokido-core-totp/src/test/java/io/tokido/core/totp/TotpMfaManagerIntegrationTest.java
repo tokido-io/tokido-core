@@ -20,7 +20,7 @@ class TotpMfaManagerIntegrationTest {
         TotpFactorProvider totp = new TotpFactorProvider(config, store);
         MfaManager mfa = MfaManager.builder().secretStore(store).factor(totp).build();
 
-        mfa.enroll("u1", "totp", new TotpEnrollmentContext("alice@example.com").asEnrollmentContext());
+        mfa.enroll("u1", "totp", TotpEnrollmentContexts.enrollment(new TotpEnrollmentContext("alice@example.com")));
 
         StoredSecret stored = store.inspect("u1", "totp");
         assertNotNull(stored);

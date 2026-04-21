@@ -93,7 +93,7 @@ class TotpFactorProviderTest {
     @Test
     void enrollUsesTotpEnrollmentContext() {
         TotpEnrollmentResult result = provider.enroll("user1",
-                new TotpEnrollmentContext("alice@example.com").asEnrollmentContext());
+                TotpEnrollmentContexts.enrollment(new TotpEnrollmentContext("alice@example.com")));
 
         assertTrue(result.secretUri().contains("alice%40example.com"));
     }
