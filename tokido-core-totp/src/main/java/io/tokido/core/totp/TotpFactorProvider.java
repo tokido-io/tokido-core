@@ -17,11 +17,10 @@ import java.util.function.Function;
  * Implements RFC 6238 with replay protection, configurable time window,
  * and GraalVM-safe QR code generation.
  *
- * <p>By default this provider requires confirmation: after {@code MfaManager.enroll()}, the user must
- * call {@code MfaManager.confirmEnrollment()} with a valid TOTP code before the factor
- * becomes active for verification.
- * Use {@link TotpConfig#requiresConfirmation(boolean)} with {@code false} for server-side
- * provisioning flows where the factor should be active immediately.
+ * <p>By default this provider does not require confirmation and is active immediately after
+ * {@code MfaManager.enroll()}.
+ * Set {@link TotpConfig#requiresConfirmation(boolean)} to {@code true} for flows where the
+ * user must call {@code MfaManager.confirmEnrollment()} before verification is accepted.
  *
  * <h2>Metadata written to SecretStore</h2>
  * <ul>

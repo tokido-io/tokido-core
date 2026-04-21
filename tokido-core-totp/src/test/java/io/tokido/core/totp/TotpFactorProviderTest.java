@@ -29,16 +29,16 @@ class TotpFactorProviderTest {
 
     @Test
     void requiresConfirmation() {
-        assertTrue(provider.requiresConfirmation());
+        assertFalse(provider.requiresConfirmation());
     }
 
     @Test
     void requiresConfirmationFollowsConfig() {
         TotpFactorProvider strict = new TotpFactorProvider(TotpConfig.defaults(), store);
-        assertTrue(strict.requiresConfirmation());
+        assertFalse(strict.requiresConfirmation());
 
-        TotpFactorProvider immediate = new TotpFactorProvider(TotpConfig.defaults().requiresConfirmation(false), store);
-        assertFalse(immediate.requiresConfirmation());
+        TotpFactorProvider confirm = new TotpFactorProvider(TotpConfig.defaults().requiresConfirmation(true), store);
+        assertTrue(confirm.requiresConfirmation());
     }
 
     @Test
@@ -188,7 +188,7 @@ class TotpFactorProviderTest {
         provider.enroll("user1", EnrollmentContext.empty());
         FactorStatus status = provider.status("user1");
         assertTrue(status.enrolled());
-        assertFalse(status.confirmed()); // not yet confirmed
+        assertTrue(status.confirmed()); // confirmation is disabled by default
         assertNotNull(status.attributes().get("createdAt"));
     }
 

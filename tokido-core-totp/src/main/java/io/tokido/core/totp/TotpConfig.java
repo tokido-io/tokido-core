@@ -12,7 +12,7 @@ public class TotpConfig {
     int windowSize = 1;
     String algorithm = "HmacSHA1";
     String issuer = "App";
-    boolean requiresConfirmation = true;
+    boolean requiresConfirmation = false;
 
     public static TotpConfig defaults() {
         return new TotpConfig();
@@ -49,9 +49,9 @@ public class TotpConfig {
     }
 
     /**
-     * Whether TOTP enrollment follows the two-step confirm flow. Defaults to {@code true}.
-     * Set to {@code false} for trusted server-side provisioning where the factor should be
-     * immediately active without a separate {@code confirmEnrollment} step.
+     * Whether TOTP enrollment follows the two-step confirm flow. Defaults to {@code false}.
+     * Set to {@code true} for flows where enrollment should remain pending until
+     * {@code confirmEnrollment} succeeds.
      */
     public TotpConfig requiresConfirmation(boolean requiresConfirmation) {
         this.requiresConfirmation = requiresConfirmation;
