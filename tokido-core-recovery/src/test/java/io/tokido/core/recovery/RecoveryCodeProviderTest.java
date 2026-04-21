@@ -35,7 +35,7 @@ class RecoveryCodeProviderTest {
 
     @Test
     void enrollGeneratesTenCodes() {
-        RecoveryEnrollmentResult result = provider.enroll("user1", EnrollmentContext.empty());
+        RecoveryEnrollmentResult result = provider.enroll("user1", RecoveryEnrollmentContexts.enrollment());
 
         List<String> codes = result.codes();
         assertEquals(10, codes.size());
@@ -50,7 +50,7 @@ class RecoveryCodeProviderTest {
 
     @Test
     void enrollStoresHashedCodes() {
-        provider.enroll("user1", EnrollmentContext.empty());
+        provider.enroll("user1", RecoveryEnrollmentContexts.enrollment());
 
         assertTrue(store.hasSecret("user1", "recovery"));
         StoredSecret stored = store.inspect("user1", "recovery");
@@ -65,7 +65,7 @@ class RecoveryCodeProviderTest {
 
     @Test
     void verifyAcceptsValidCode() {
-        RecoveryEnrollmentResult enrollment = provider.enroll("user1", EnrollmentContext.empty());
+        RecoveryEnrollmentResult enrollment = provider.enroll("user1", RecoveryEnrollmentContexts.enrollment());
         String firstCode = enrollment.codes().get(0);
 
         RecoveryVerificationResult result = provider.verify("user1", firstCode, VerificationContext.empty());
@@ -75,7 +75,7 @@ class RecoveryCodeProviderTest {
 
     @Test
     void verifyConsumesCode() {
-        RecoveryEnrollmentResult enrollment = provider.enroll("user1", EnrollmentContext.empty());
+        RecoveryEnrollmentResult enrollment = provider.enroll("user1", RecoveryEnrollmentContexts.enrollment());
         String firstCode = enrollment.codes().get(0);
 
         // First use succeeds
@@ -90,7 +90,7 @@ class RecoveryCodeProviderTest {
 
     @Test
     void verifyRejectsInvalidCode() {
-        provider.enroll("user1", EnrollmentContext.empty());
+        provider.enroll("user1", RecoveryEnrollmentContexts.enrollment());
 
         RecoveryVerificationResult result = provider.verify("user1", "00000000", VerificationContext.empty());
         assertFalse(result.valid());
@@ -99,7 +99,7 @@ class RecoveryCodeProviderTest {
 
     @Test
     void verifyMultipleCodesDecrementsCount() {
-        RecoveryEnrollmentResult enrollment = provider.enroll("user1", EnrollmentContext.empty());
+        RecoveryEnrollmentResult enrollment = provider.enroll("user1", RecoveryEnrollmentContexts.enrollment());
 
         for (int i = 0; i < 3; i++) {
             RecoveryVerificationResult result = provider.verify(
@@ -123,7 +123,7 @@ class RecoveryCodeProviderTest {
 
     @Test
     void statusEnrolled() {
-        provider.enroll("user1", EnrollmentContext.empty());
+        provider.enroll("user1", RecoveryEnrollmentContexts.enrollment());
         FactorStatus status = provider.status("user1");
         assertTrue(status.enrolled());
         assertTrue(status.confirmed()); // recovery codes don't need confirmation
@@ -132,7 +132,7 @@ class RecoveryCodeProviderTest {
 
     @Test
     void statusAfterCodeUse() {
-        RecoveryEnrollmentResult enrollment = provider.enroll("user1", EnrollmentContext.empty());
+        RecoveryEnrollmentResult enrollment = provider.enroll("user1", RecoveryEnrollmentContexts.enrollment());
         provider.verify("user1", enrollment.codes().get(0), VerificationContext.empty());
 
         FactorStatus status = provider.status("user1");
@@ -145,7 +145,7 @@ class RecoveryCodeProviderTest {
                 RecoveryConfig.defaults().codeCount(5).codeLength(6).bcryptCost(4),
                 store);
 
-        RecoveryEnrollmentResult result = custom.enroll("user1", EnrollmentContext.empty());
+        RecoveryEnrollmentResult result = custom.enroll("user1", RecoveryEnrollmentContexts.enrollment());
         assertEquals(5, result.codes().size());
         for (String code : result.codes()) {
             assertEquals(6, code.length());
