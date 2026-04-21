@@ -7,7 +7,9 @@ import io.tokido.core.test.InMemorySecretStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -180,6 +182,68 @@ class MfaManagerTest {
         assertFalse(store.hasSecret("user1", "test-confirm"));
     }
 
+    @Test
+    void enrollEmptyListReturnsEmptyMap() {
+        var mfa = buildManager(factor("a", false));
+        assertTrue(mfa.enroll("user1", List.of()).isEmpty());
+    }
+
+    @Test
+    void enrollMultipleAllSucceedReturnsResults() {
+        var mfa = buildManager(factor("a", false), factor("b", false));
+        Map<String, EnrollmentResult> results = mfa.enroll("user1", List.of(
+                new FactorEnrollment("a", EnrollmentContext.empty()),
+                new FactorEnrollment("b", EnrollmentContext.empty())
+        ));
+        assertEquals(2, results.size());
+        assertTrue(store.hasSecret("user1", "a"));
+        assertTrue(store.hasSecret("user1", "b"));
+    }
+
+    @Test
+    void enrollMultipleRollbackIgnoresUnenrollFailure() {
+        FactorProvider<TestEnrollmentResult, TestVerificationResult> ok = new FactorProvider<>() {
+            @Override public String factorType() { return "ok"; }
+            @Override public boolean requiresConfirmation() { return false; }
+            @Override public TestEnrollmentResult enroll(String userId, EnrollmentContext ctx) {
+                store.store(userId, factorType(), new byte[]{1}, Map.of());
+                return new TestEnrollmentResult("ok");
+            }
+            @Override public TestVerificationResult verify(String userId, String credential, VerificationContext ctx) {
+                return new TestVerificationResult(true, null);
+            }
+            @Override public void unenroll(String userId) {
+                throw new RuntimeException("simulated rollback unenroll failure");
+            }
+            @Override public FactorStatus status(String userId) {
+                return store.hasSecret(userId, factorType()) ? new FactorStatus(true, true, Map.of()) : FactorStatus.notEnrolled();
+            }
+        };
+
+        FactorProvider<TestEnrollmentResult, TestVerificationResult> boom = new FactorProvider<>() {
+            @Override public String factorType() { return "boom"; }
+            @Override public boolean requiresConfirmation() { return false; }
+            @Override public TestEnrollmentResult enroll(String userId, EnrollmentContext ctx) {
+                store.store(userId, factorType(), new byte[]{2}, Map.of());
+                throw new RuntimeException("boom");
+            }
+            @Override public TestVerificationResult verify(String userId, String credential, VerificationContext ctx) {
+                return new TestVerificationResult(true, null);
+            }
+            @Override public void unenroll(String userId) {}
+            @Override public FactorStatus status(String userId) {
+                return store.hasSecret(userId, factorType()) ? new FactorStatus(true, true, Map.of()) : FactorStatus.notEnrolled();
+            }
+        };
+
+        var mfa = buildManager(ok, boom);
+
+        assertThrows(RuntimeException.class, () -> mfa.enroll("user1", List.of(
+                new FactorEnrollment("ok", EnrollmentContext.empty()),
+                new FactorEnrollment("boom", EnrollmentContext.empty())
+        )));
+    }
+
     // --- Confirmation ---
 
     @Test
@@ -263,6 +327,7 @@ class MfaManagerTest {
 
         VerificationResult result = mfa.verify("user1", "test-confirm", "valid");
         assertFalse(result.valid());
+        assertEquals(Optional.of("unconfirmed"), result.failureReason());
     }
 
     @Test

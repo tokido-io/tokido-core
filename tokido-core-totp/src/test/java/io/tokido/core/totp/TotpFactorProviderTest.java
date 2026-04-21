@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -69,6 +70,54 @@ class TotpFactorProviderTest {
         assertTrue(ex.secretUri().startsWith("otpauth://totp/"));
         assertEquals("simulated QR failure", ex.getCause().getMessage());
         assertFalse(store.hasSecret("user1", "totp"));
+    }
+
+    @Test
+    void enrollPropagatesTotpQrCodeGenerationException() {
+        TotpFactorProvider failing = new TotpFactorProvider(
+                TotpConfig.defaults().issuer("TestApp"),
+                store,
+                uri -> {
+                    throw new TotpQrCodeGenerationException(uri, new RuntimeException("inner"));
+                });
+
+        TotpQrCodeGenerationException ex = assertThrows(TotpQrCodeGenerationException.class,
+                () -> failing.enroll("user1", EnrollmentContext.empty()));
+
+        assertTrue(ex.secretUri().startsWith("otpauth://totp/"));
+        assertEquals("inner", ex.getCause().getMessage());
+        assertFalse(store.hasSecret("user1", "totp"));
+    }
+
+    @Test
+    void defaultSecretStoreConstructorUsesDefaultTotpConfig() {
+        TotpFactorProvider p = new TotpFactorProvider(store);
+        assertEquals("totp", p.factorType());
+        TotpEnrollmentResult r = p.enroll("user1", EnrollmentContext.empty());
+        assertTrue(r.secretUri().contains("issuer="));
+    }
+
+    @Test
+    void enrollUsesLegacyAccountNameProperty() {
+        TotpEnrollmentResult result = provider.enroll("user1",
+                EnrollmentContext.of("accountName", "legacy@example.com"));
+        assertTrue(result.secretUri().contains("legacy%40example.com"));
+    }
+
+    @Test
+    void statusReflectsConfirmationMetadataWhenRequired() {
+        TotpFactorProvider confirmRequired = new TotpFactorProvider(
+                TotpConfig.defaults().requiresConfirmation(true), store);
+        confirmRequired.enroll("user1", EnrollmentContext.empty());
+
+        FactorStatus pending = confirmRequired.status("user1");
+        assertTrue(pending.enrolled());
+        assertFalse(pending.confirmed());
+
+        store.update("user1", "totp", Map.of(SecretStore.Metadata.CONFIRMED, true));
+
+        FactorStatus after = confirmRequired.status("user1");
+        assertTrue(after.confirmed());
     }
 
     @Test

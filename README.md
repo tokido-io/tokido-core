@@ -3,6 +3,7 @@
 Production-grade MFA toolkit for Java. TOTP, recovery codes, extensible factors. GraalVM native-image ready.
 
 [![CI](https://github.com/tokido-io/tokido-core/actions/workflows/ci.yml/badge.svg)](https://github.com/tokido-io/tokido-core/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/tokido-io/tokido-core/graph/badge.svg)](https://codecov.io/gh/tokido-io/tokido-core)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 ## Why tokido-core?
@@ -97,6 +98,12 @@ mvn verify
 ```
 
 Requires Java 21+.
+
+## Coverage
+
+Line coverage is measured with [JaCoCo](https://www.jacoco.org/jacoco/) during `mvn verify` (minimum **90%** per module bundle). HTML reports are written under each module, for example `tokido-core-engine/target/site/jacoco/index.html`.
+
+CI publishes reports to [Codecov](https://codecov.io/gh/tokido-io/tokido-core) (interactive tree and history). The badge above tracks default-branch coverage; PRs get a diff once the repository is connected to Codecov.
 
 ## Used in production by
 
