@@ -124,6 +124,62 @@ class MfaManagerTest {
         assertEquals(false, stored.metadata().get("confirmed"));
     }
 
+    @Test
+    void enrollMultipleRollsBackOnFailure() {
+        FactorProvider<TestEnrollmentResult, TestVerificationResult> ok = new FactorProvider<>() {
+            @Override public String factorType() { return "ok"; }
+            @Override public boolean requiresConfirmation() { return false; }
+            @Override public TestEnrollmentResult enroll(String userId, EnrollmentContext ctx) {
+                store.store(userId, factorType(), new byte[]{1}, Map.of());
+                return new TestEnrollmentResult("ok");
+            }
+            @Override public TestVerificationResult verify(String userId, String credential, VerificationContext ctx) {
+                return new TestVerificationResult(true, null);
+            }
+            @Override public void unenroll(String userId) {}
+            @Override public FactorStatus status(String userId) { return store.hasSecret(userId, factorType()) ? new FactorStatus(true, true, Map.of()) : FactorStatus.notEnrolled(); }
+        };
+
+        FactorProvider<TestEnrollmentResult, TestVerificationResult> boom = new FactorProvider<>() {
+            @Override public String factorType() { return "boom"; }
+            @Override public boolean requiresConfirmation() { return false; }
+            @Override public TestEnrollmentResult enroll(String userId, EnrollmentContext ctx) {
+                // Simulate provider writing, then throwing.
+                store.store(userId, factorType(), new byte[]{2}, Map.of());
+                throw new RuntimeException("boom");
+            }
+            @Override public TestVerificationResult verify(String userId, String credential, VerificationContext ctx) {
+                return new TestVerificationResult(true, null);
+            }
+            @Override public void unenroll(String userId) {}
+            @Override public FactorStatus status(String userId) { return store.hasSecret(userId, factorType()) ? new FactorStatus(true, true, Map.of()) : FactorStatus.notEnrolled(); }
+        };
+
+        var mfa = buildManager(ok, boom);
+
+        assertThrows(RuntimeException.class, () -> mfa.enroll("user1", java.util.List.of(
+                new FactorEnrollment("ok", EnrollmentContext.empty()),
+                new FactorEnrollment("boom", EnrollmentContext.empty())
+        )));
+
+        assertFalse(store.hasSecret("user1", "ok"));
+        assertFalse(store.hasSecret("user1", "boom"));
+    }
+
+    @Test
+    void enrollMultiplePrecheckAvoidsPartialWrites() {
+        var mfa = buildManager(factor("test-simple", false), factor("test-confirm", true));
+        mfa.enroll("user1", "test-simple", EnrollmentContext.empty());
+
+        assertThrows(AlreadyEnrolledException.class, () -> mfa.enroll("user1", java.util.List.of(
+                new FactorEnrollment("test-simple", EnrollmentContext.empty()),
+                new FactorEnrollment("test-confirm", EnrollmentContext.empty())
+        )));
+
+        // confirm factor should not have been written.
+        assertFalse(store.hasSecret("user1", "test-confirm"));
+    }
+
     // --- Confirmation ---
 
     @Test
