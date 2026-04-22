@@ -29,11 +29,10 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: success()
-        continue-on-error: true
         uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5.4.0
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
+          fail_ci_if_error: true
           files: |
             **/target/site/jacoco/jacoco.xml
 
