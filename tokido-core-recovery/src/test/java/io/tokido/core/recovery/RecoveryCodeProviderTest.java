@@ -151,4 +151,36 @@ class RecoveryCodeProviderTest {
             assertEquals(6, code.length());
         }
     }
+
+    @Test
+    void defaultConfigConstructor() {
+        RecoveryCodeProvider p = new RecoveryCodeProvider(store);
+        RecoveryEnrollmentResult result = p.enroll("user1", RecoveryEnrollmentContexts.enrollment());
+        assertEquals(10, result.codes().size());
+    }
+
+    @Test
+    void enrollmentWithTypedContext() {
+        RecoveryEnrollmentResult result = provider.enroll("user1",
+                RecoveryEnrollmentContexts.enrollment(new RecoveryEnrollmentContext()));
+        assertEquals(10, result.codes().size());
+    }
+
+    @Test
+    void enrollmentTypedContextRejectsNull() {
+        assertThrows(NullPointerException.class, () ->
+                RecoveryEnrollmentContexts.enrollment(null));
+    }
+
+    @Test
+    void recoveryEnrollmentContextInstantiation() {
+        assertNotNull(new RecoveryEnrollmentContext());
+    }
+
+    @Test
+    void unenrollIsNoOp() {
+        provider.enroll("user1", RecoveryEnrollmentContexts.enrollment());
+        provider.unenroll("user1");
+        assertTrue(store.hasSecret("user1", "recovery"));
+    }
 }

@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * RFC 6238 Appendix B test vectors.
@@ -88,5 +89,12 @@ class TotpAlgorithmTest {
         TotpConfig config = TotpConfig.defaults();
         int code = TotpAlgorithm.generate(SEED_SHA1, 1, config);
         assertEquals(287082, code); // 6-digit default
+    }
+
+    @Test
+    void generateThrowsWhenMacAlgorithmInvalid() {
+        RuntimeException ex = assertThrows(RuntimeException.class,
+                () -> TotpAlgorithm.generate(SEED_SHA1, 1L, "NoSuchHmacAlgorithm", 6));
+        assertEquals("TOTP computation failed", ex.getMessage());
     }
 }

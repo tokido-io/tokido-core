@@ -29,4 +29,12 @@ class QrCodeGeneratorTest {
         assertNotNull(base64);
         assertFalse(base64.isEmpty());
     }
+
+    @Test
+    void toPngBase64WrapsEncoderFailures() {
+        // Exceeds maximum QR capacity so ZXing throws; should surface as RuntimeException with a stable message.
+        String tooLong = "x".repeat(10_000);
+        RuntimeException ex = assertThrows(RuntimeException.class, () -> QrCodeGenerator.toPngBase64(tooLong));
+        assertEquals("QR code generation failed", ex.getMessage());
+    }
 }
