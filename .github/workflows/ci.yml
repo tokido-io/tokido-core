@@ -27,12 +27,11 @@ jobs:
       - name: Build and test with coverage
         run: mvn verify
 
-      - name: Upload coverage to Codecov
+      - name: Upload coverage reports to Codecov
         if: success()
-        uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5.4.0
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: true
           files: |
             **/target/site/jacoco/jacoco.xml
 
