@@ -27,11 +27,23 @@ jobs:
       - name: Build and test with coverage
         run: mvn verify
 
+      - name: Verify CODECOV_TOKEN is available
+        if: success()
+        shell: bash
+        run: |
+          if [[ -z "${{ secrets.CODECOV_TOKEN }}" ]]; then
+            echo "CODECOV_TOKEN is not available to this workflow run."
+            echo "If it is configured, ensure it's a *repository* Actions secret named exactly CODECOV_TOKEN,"
+            echo "or that an organization/environment secret is correctly scoped to this repo/workflow."
+            exit 1
+          fi
+
       - name: Upload coverage reports to Codecov
         if: success()
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
           files: |
             **/target/site/jacoco/jacoco.xml
 
