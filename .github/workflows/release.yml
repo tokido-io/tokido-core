@@ -53,6 +53,11 @@ jobs:
 
       - name: Build and verify
         run: mvn verify -P release -DskipITs
+        env:
+          # The release profile triggers maven-gpg-plugin during the verify
+          # phase, which the parent settings.xml resolves via ${env.GPG_PASSPHRASE}.
+          # Without this env block, the verify step fails with "Bad passphrase".
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
 
       - name: Verify source and Javadoc artifacts
         run: |
