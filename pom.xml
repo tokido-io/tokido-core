@@ -40,12 +40,19 @@
         <module>tokido-core-engine</module>
         <module>tokido-core-totp</module>
         <module>tokido-core-recovery</module>
+        <!-- New in 0.1 (alpha line) -->
+        <module>tokido-core-identity-api</module>
+        <module>tokido-core-identity-engine</module>
+        <module>tokido-core-identity-jwt</module>
+        <module>tokido-core-identity-broker</module>
+        <module>tokido-core-identity-mfa</module>
     </modules>
 
     <properties>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+        <tokido.core.version>2.0.0-M0-SNAPSHOT</tokido.core.version>
         <junit.version>5.11.4</junit.version>
         <jacoco.version>0.8.14</jacoco.version>
         <surefire.version>3.5.4</surefire.version>
@@ -57,13 +64,49 @@
             <dependency>
                 <groupId>io.tokido</groupId>
                 <artifactId>tokido-core-api</artifactId>
-                <version>${project.version}</version>
+                <version>${tokido.core.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.tokido</groupId>
                 <artifactId>tokido-core-test</artifactId>
-                <version>${project.version}</version>
+                <version>${tokido.core.version}</version>
                 <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.tokido</groupId>
+                <artifactId>tokido-core-engine</artifactId>
+                <version>${tokido.core.version}</version>
+            </dependency>
+            <!-- New: identity modules carry their own version line -->
+            <dependency>
+                <groupId>io.tokido</groupId>
+                <artifactId>tokido-core-identity-api</artifactId>
+                <version>0.1.0-M0-SNAPSHOT</version>
+            </dependency>
+            <dependency>
+                <groupId>io.tokido</groupId>
+                <artifactId>tokido-core-identity-engine</artifactId>
+                <version>0.1.0-M0-SNAPSHOT</version>
+            </dependency>
+            <dependency>
+                <groupId>io.tokido</groupId>
+                <artifactId>tokido-core-identity-jwt</artifactId>
+                <version>0.1.0-M0-SNAPSHOT</version>
+            </dependency>
+            <dependency>
+                <groupId>io.tokido</groupId>
+                <artifactId>tokido-core-identity-broker</artifactId>
+                <version>0.1.0-M0-SNAPSHOT</version>
+            </dependency>
+            <dependency>
+                <groupId>io.tokido</groupId>
+                <artifactId>tokido-core-identity-mfa</artifactId>
+                <version>0.1.0-M0-SNAPSHOT</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apiguardian</groupId>
+                <artifactId>apiguardian-api</artifactId>
+                <version>1.1.2</version>
             </dependency>
             <dependency>
                 <groupId>org.junit.jupiter</groupId>
