@@ -46,6 +46,7 @@
         <module>tokido-core-identity-jwt</module>
         <module>tokido-core-identity-broker</module>
         <module>tokido-core-identity-mfa</module>
+        <module>tokido-core-identity-conformance</module> <!-- test-only, not published -->
     </modules>
 
     <properties>
