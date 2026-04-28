@@ -1,0 +1,49 @@
+name: conformance-badge
+
+on:
+  workflow_run:
+    workflows: [oidc-conformance]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  publish-badge:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          ref: gh-pages
+          fetch-depth: 1
+
+      - name: Download conformance results
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: conformance-results
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: ./_results
+
+      - name: Compose shields.io badge JSON
+        run: |
+          PASSED=$(jq -r '.passed' ./_results/conformance-results.json)
+          TOTAL=$(jq -r '.total' ./_results/conformance-results.json)
+          mkdir -p badges
+          cat > badges/conformance.json <<EOF
+          {
+            "schemaVersion": 1,
+            "label": "OIDC conformance",
+            "message": "${PASSED}/${TOTAL} basic",
+            "color": "blue"
+          }
+          EOF
+
+      - name: Commit badge JSON to gh-pages
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add badges/conformance.json
+          git diff --cached --quiet || git commit -m "chore(badges): update conformance pass-rate"
+          git push origin gh-pages

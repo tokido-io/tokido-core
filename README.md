@@ -4,6 +4,7 @@ Production-grade MFA toolkit for Java. TOTP, recovery codes, extensible factors.
 
 [![CI](https://github.com/tokido-io/tokido-core/actions/workflows/ci.yml/badge.svg)](https://github.com/tokido-io/tokido-core/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/tokido-io/tokido-core/graph/badge.svg)](https://codecov.io/gh/tokido-io/tokido-core)
+[![OIDC conformance](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/tokido-io/tokido-core/gh-pages/badges/conformance.json)](https://github.com/tokido-io/tokido-core/actions/workflows/oidc-conformance.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 ## Why tokido-core?
@@ -13,6 +14,24 @@ Production-grade MFA toolkit for Java. TOTP, recovery codes, extensible factors.
 - **GraalVM native-image ready** — no AWT, no runtime reflection. QR codes generated with pure `java.util.zip`.
 - **Zero framework dependencies** — works with Quarkus, Spring Boot, Micronaut, or plain Java
 - **Extensible factors** — TOTP and recovery codes ship in v1. Add WebAuthn, email OTP, or SMS by implementing `FactorProvider`.
+
+## OIDC extension status (in development — alpha)
+
+The OIDC extension is being built across six releases (M0 → M5). The current release is **`0.1.0-M0`** — scaffolding and conformance harness only; no engine code yet.
+
+**OIDC basic conformance: 0/N** (M0 baseline — stub adapter returns `501 Not Implemented` for all endpoints; conformance pass-rate climbs as the engine implementation lands at M2 onward.)
+
+| Module | Introduced | API status | Coverage | Notes |
+|---|---|---|---|---|
+| `tokido-core-identity-api` | M0 | empty skeleton | n/a | SPIs and protocol value types land at M1 |
+| `tokido-core-identity-engine` | M0 | empty skeleton | n/a | Engine façade and handlers land at M1–M2 |
+| `tokido-core-identity-jwt` | M2 (placeholder pom in M0) | not yet introduced | n/a | Nimbus-backed JWT signing; lands at M2 |
+| `tokido-core-identity-broker` | M3 (placeholder pom in M0) | not yet introduced | n/a | OIDC RP federation; lands at M3 |
+| `tokido-core-identity-mfa` | M4 (placeholder pom in M0) | not yet introduced | n/a | Bridge to existing MFA modules; lands at M4 |
+
+> Coverage gates are intentionally suppressed in M0 (modules contain no Java sources yet); they re-engage at M1 when SPIs and protocol value types land.
+
+The release cadence and milestone definitions are documented in [ADR-0004](docs/adr/0004-release-cadence.md). See `docs/adr/` for the full architectural decision record.
 
 ## Quick start
 

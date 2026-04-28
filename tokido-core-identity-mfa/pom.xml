@@ -3,39 +3,53 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
+
     <parent>
         <groupId>io.tokido</groupId>
         <artifactId>tokido-core</artifactId>
         <version>2.0.0-M0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>tokido-core-totp</artifactId>
-    <name>Tokido Core TOTP</name>
-    <description>TOTP factor provider with replay protection and GraalVM-safe QR code generation</description>
+    <artifactId>tokido-core-identity-mfa</artifactId>
+    <version>0.1.0-M0-SNAPSHOT</version>
+
+    <name>Tokido Core Identity MFA</name>
+    <description>Bridge between the tokido-core OIDC extension and existing MFA modules for step-up authentication and AMR/ACR claim emission.</description>
 
     <dependencies>
+        <dependency>
+            <groupId>io.tokido</groupId>
+            <artifactId>tokido-core-identity-api</artifactId>
+        </dependency>
         <dependency>
             <groupId>io.tokido</groupId>
             <artifactId>tokido-core-api</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.google.zxing</groupId>
-            <artifactId>core</artifactId>
-            <version>3.5.3</version>
-        </dependency>
-        <dependency>
-            <groupId>io.tokido</groupId>
-            <artifactId>tokido-core-test</artifactId>
-        </dependency>
-        <dependency>
             <groupId>io.tokido</groupId>
             <artifactId>tokido-core-engine</artifactId>
-            <version>${project.version}</version>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>check</id>
+                        <configuration>
+                            <skip>true</skip>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

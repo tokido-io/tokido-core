@@ -14,6 +14,9 @@ Thank you for your interest in contributing. This document covers everything you
 - [Testing requirements](#testing-requirements)
 - [CI / GitHub Actions](#ci--github-actions)
 - [Adding a new factor provider](#adding-a-new-factor-provider)
+- [Adding a new OIDC module](#adding-a-new-oidc-module)
+- [TDD expectations for identity modules](#tdd-expectations-for-identity-modules)
+- [README is part of the release](#readme-is-part-of-the-release)
 - [Commit messages](#commit-messages)
 - [Review process](#review-process)
 - [Release process](#release-process)
@@ -179,6 +182,50 @@ JavaScript actions that run on **Node 24** need a GitHub Actions runner that bun
 7. Use `SecretStore.Metadata` constants for all metadata keys you read or write
 8. Add the module to the parent `pom.xml` `<modules>` list
 9. Open an issue to discuss the new factor before submitting the PR
+
+---
+
+## Adding a new OIDC module
+
+1. Create a new module: `tokido-core-identity-yourmodule/`
+2. Add `pom.xml` with parent reference (parent at `2.0.0-MX-SNAPSHOT`) and explicit child version `0.1.0-MX-SNAPSHOT`. Identity modules carry their own version line per ADR-0010.
+3. Declare compile-time deps as documented in the project-A detailed plan (Module map).
+4. Write tests using JUnit 5 + AssertJ. Coverage gates re-engage at the milestone the module first contributes Java code.
+5. ArchUnit no-framework-imports test runs in `mvn verify` for every identity module — Spring/Quarkus/Jakarta/Servlet/JAX-RS imports fail the build.
+6. Add the module to the parent `pom.xml` `<modules>` list.
+7. Open an issue with the module's purpose and SPI surface before submitting the PR.
+
+## TDD expectations for identity modules
+
+The OIDC extension follows TDD discipline. Every PR that touches engine handlers, SPI contracts, JWT operations, or broker flows opens with a failing test that pins the new behavior. Steps:
+
+1. **Red.** Write the failing JUnit (or jqwik property) before the implementation. New SPI member → extend the abstract contract test in `-api` first.
+2. **Green.** Implement the minimum code that makes the new test pass. Existing tests must stay green.
+3. **Refactor.** Tighten in-PR; no follow-up "cleanup" PRs.
+4. **Conformance check.** PR description includes the conformance pass-rate delta (e.g., `before: 32/47 → after: 33/47`). The `oidc-conformance` GHA job posts the rate as a check. **Pass-rate must not regress** — strict gate. Refactor PRs that move tests update fixtures within the same PR.
+
+TDD is **not** mandatory for: pom files, Javadoc, README, ADR text, build scripts, the conformance harness adapter (it is itself a test fixture).
+
+## README is part of the release
+
+Each release tag (`0.1.0-MX`) is preceded by a README sync per ADR-0013. The README must, at all times, accurately reflect:
+
+- Current capability (what works, what's stubbed, what's not yet implemented).
+- Module status table (per module: introduced-at, locked-at, current `@API` status, current line coverage).
+- Conformance pass-rate and link to the latest CI report.
+- Three badges at the top: CI status, Codecov, OIDC conformance.
+
+A release PR that doesn't update the README does not go out. Mid-milestone PRs update the README only if they change surface a downstream consumer would care about.
+
+The conformance badge depends on a `gh-pages` branch hosting `badges/conformance.json`. When this repository's `gh-pages` branch does not yet exist, create it once as an orphan branch:
+
+```bash
+git checkout --orphan gh-pages
+git rm -rf .
+git commit --allow-empty -m "chore: initialize gh-pages for badge JSON"
+git push origin gh-pages
+git checkout main
+```
 
 ---
 

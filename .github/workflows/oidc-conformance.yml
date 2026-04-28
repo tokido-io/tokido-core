@@ -1,0 +1,55 @@
+name: oidc-conformance
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Cache OIDF conformance suite image
+        uses: ScribeMD/docker-cache@fb28c93772363301b8d0a6072ce850224b73f74e # 0.5.0
+        with:
+          key: oidf-conformance-suite-${{ hashFiles('tokido-core-identity-conformance/src/test/resources/docker-compose.yml') }}
+
+      # NOTE (revisit at M2): this workflow does NOT upload JaCoCo data to
+      # Codecov. The conformance module's coverage gate is intentionally
+      # skipped at M0 (no main sources). When real engine code lands at M2
+      # and the IT exercises it, add a Codecov upload step mirroring ci.yml.
+      - name: Run OIDF conformance suite
+        env:
+          CONFORMANCE_FLOOR: ${{ vars.CONFORMANCE_FLOOR || '0' }}
+        run: mvn -pl tokido-core-identity-conformance -am verify -B
+
+      - name: Upload OIDF results JSON
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: conformance-results
+          path: tokido-core-identity-conformance/target/conformance-results.json
+          retention-days: 90
+
+      - name: Upload OIDF HTML report (if any)
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: conformance-html
+          path: tokido-core-identity-conformance/target/oidf-html/
+          retention-days: 30
+          if-no-files-found: ignore
