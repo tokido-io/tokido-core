@@ -67,7 +67,8 @@ class OidcConformanceIT {
     // (MongoDB index creation + extensive class scanning).  CI machines are often
     // slower.  10 min provides a generous margin.
     private static final Duration BOOT_TIMEOUT = Duration.ofMinutes(10);
-    private static final Duration MODULE_TIMEOUT = Duration.ofMinutes(5);
+    // Stub-mode (M0-M1) timeout: 1 minute per module is plenty since stub returns 501 immediately. Re-evaluate at M2 when real engine work begins.
+    private static final Duration MODULE_TIMEOUT = Duration.ofMinutes(1);
     private static final Path COMPOSE_FILE =
             Path.of("src/test/resources/docker-compose.yml");
     private static final Path RESULTS_FILE = Path.of("target/conformance-results.json");
@@ -113,80 +114,101 @@ class OidcConformanceIT {
     }
 
     @AfterAll
-    static void teardown() throws Exception {
+    static void teardown() {
         try {
             if (sut != null) sut.stop();
-        } finally {
+        } catch (Exception e) {
+            System.err.println("Failed to stop SUT: " + e.getMessage());
+        }
+        try {
             runOrFail("docker", "compose", "-f", COMPOSE_FILE.toString(), "down", "-v");
+        } catch (Exception e) {
+            System.err.println("Failed to docker compose down: " + e.getMessage());
         }
     }
 
     @Test
     void basicCertificationTestPlanPassRateMeetsMilestoneFloor() throws Exception {
-        // ── Step 1: create the test plan ────────────────────────────────────────
-        //
-        // POST /api/plan?planName=<name>&variant=<json>
-        // Body: JSON configuration.  The suite's container reaches the SUT via
-        // "host.docker.internal" (resolves to the Docker host IP).  The extra_hosts
-        // entry in docker-compose maps it on Linux/CI; on Mac Docker Desktop / Colima
-        // it resolves automatically.
-        //
-        // The plan requires two variants (see PLAN_VARIANT) and dummy client
-        // credentials (never actually used since the StubAdapter returns 501).
-        String config = """
-                {
-                  "description": "M0 conformance smoke run",
-                  "server": {
-                    "discoveryUrl": "http://host.docker.internal:%d/.well-known/openid-configuration"
-                  },
-                  "client": {
-                    "client_id": "tokido_m0_client",
-                    "client_secret": "tokido_m0_secret"
-                  },
-                  "client2": {
-                    "client_id": "tokido_m0_client2",
-                    "client_secret": "tokido_m0_secret2"
-                  }
-                }
-                """.formatted(sut.port());
-
-        String planId = createPlan(config);
-        assertFalse(planId.isBlank(), "plan creation should return a non-empty ID");
-
-        // ── Step 2: instantiate every module in the plan ────────────────────────
-        //
-        // GET /api/plan/{id} → {modules:[{testModule,...},...]}.
-        // POST /api/runner?test=<module>&plan=<planId> → {id,...}.
-        List<String> moduleNames = fetchPlanModules(planId);
-        List<String> testIds = new ArrayList<>();
-        for (String moduleName : moduleNames) {
-            String testId = createTestInstance(planId, moduleName);
-            testIds.add(testId);
-        }
-
-        // ── Step 3: poll until each module reaches a terminal state ──────────────
-        //
-        // GET /api/info/{testId} → {status, result, ...}
-        // Terminal status values: FINISHED, INTERRUPTED
-        // result values: PASSED, FAILED, WARNING, REVIEW, SKIPPED, UNKNOWN
         long passed = 0;
-        long total = testIds.size();
-        for (String testId : testIds) {
-            String result = pollUntilFinished(testId, MODULE_TIMEOUT);
-            if ("PASSED".equals(result)) {
-                passed++;
-            }
-        }
+        long total = 0;
+        try {
+            // ── Step 1: create the test plan ────────────────────────────────────────
+            //
+            // POST /api/plan?planName=<name>&variant=<json>
+            // Body: JSON configuration.  The suite's container reaches the SUT via
+            // "host.docker.internal" (resolves to the Docker host IP).  The extra_hosts
+            // entry in docker-compose maps it on Linux/CI; on Mac Docker Desktop / Colima
+            // it resolves automatically.
+            //
+            // The plan requires two variants (see PLAN_VARIANT) and dummy client
+            // credentials (never actually used since the StubAdapter returns 501).
+            String config = """
+                    {
+                      "description": "M0 conformance smoke run",
+                      "server": {
+                        "discoveryUrl": "http://host.docker.internal:%d/.well-known/openid-configuration"
+                      },
+                      "client": {
+                        "client_id": "tokido_m0_client",
+                        "client_secret": "tokido_m0_secret"
+                      },
+                      "client2": {
+                        "client_id": "tokido_m0_client2",
+                        "client_secret": "tokido_m0_secret2"
+                      }
+                    }
+                    """.formatted(sut.port());
 
-        // ── Step 4: write summary and assert milestone floor ─────────────────────
-        Files.createDirectories(RESULTS_FILE.getParent());
-        Files.writeString(RESULTS_FILE,
-                "{\"passed\":" + passed + ",\"total\":" + total + "}");
+            String planId = createPlan(config);
+            assertFalse(planId.isBlank(), "plan creation should return a non-empty ID");
+
+            // ── Step 2: instantiate every module in the plan ────────────────────────
+            //
+            // GET /api/plan/{id} → {modules:[{testModule,...},...]}.
+            // POST /api/runner?test=<module>&plan=<planId> → {id,...}.
+            List<String> moduleNames = fetchPlanModules(planId);
+            List<String> testIds = new ArrayList<>();
+            for (String moduleName : moduleNames) {
+                String testId = createTestInstance(planId, moduleName);
+                testIds.add(testId);
+            }
+
+            // ── Step 3: poll until each module reaches a terminal state ──────────────
+            //
+            // GET /api/info/{testId} → {status, result, ...}
+            // Terminal status values: FINISHED, INTERRUPTED
+            // result values: PASSED, FAILED, WARNING, REVIEW, SKIPPED, UNKNOWN
+            total = testIds.size();
+            for (String testId : testIds) {
+                String result = pollUntilFinished(testId, MODULE_TIMEOUT);
+                if ("PASSED".equals(result)) {
+                    passed++;
+                }
+            }
+        } finally {
+            // ── Step 4: write summary ────────────────────────────────────────────────
+            // Always write partial results so the conformance-badge workflow can update
+            // the README badge even when the run fails or times out mid-way.
+            writeResultsFile(passed, total);
+        }
 
         long floor = milestoneFloor(); // M0 = 0
         assertTrue(passed >= floor,
                 "OIDF pass-count " + passed + "/" + total
                         + " is below milestone floor " + floor);
+    }
+
+    private static void writeResultsFile(long passed, long total) {
+        try {
+            Path parent = RESULTS_FILE.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            Files.writeString(RESULTS_FILE, "{\"passed\":" + passed + ",\"total\":" + total + "}");
+        } catch (Exception e) {
+            // Don't mask the test failure with a results-write failure.
+            System.err.println("Failed to write conformance-results.json: " + e.getMessage());
+        }
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────────

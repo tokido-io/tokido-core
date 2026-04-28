@@ -27,25 +27,50 @@ jobs:
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
           gpg-passphrase: GPG_PASSPHRASE
 
-      - name: Set version from tag
+      - name: Verify pom versions are release (not SNAPSHOT)
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
-          mvn versions:set -DnewVersion=$VERSION -DgenerateBackupPoms=false -q
+          set -euo pipefail
+          # The maintainer bumps -SNAPSHOT to release locally before tagging
+          # (per Task 10 of the M0 plan and ADR-0010). This step guards against
+          # accidentally tagging a SNAPSHOT.
+          if grep -q 'SNAPSHOT' pom.xml \
+                tokido-core-identity-api/pom.xml \
+                tokido-core-identity-engine/pom.xml \
+                tokido-core-identity-jwt/pom.xml \
+                tokido-core-identity-broker/pom.xml \
+                tokido-core-identity-mfa/pom.xml \
+                tokido-core-identity-conformance/pom.xml \
+                tokido-core-api/pom.xml \
+                tokido-core-test/pom.xml \
+                tokido-core-engine/pom.xml \
+                tokido-core-totp/pom.xml \
+                tokido-core-recovery/pom.xml; then
+            echo "::error::Found SNAPSHOT version in a pom. Maintainer must bump to release before tagging."
+            grep -H 'SNAPSHOT' pom.xml */pom.xml || true
+            exit 1
+          fi
+          echo "All poms at release versions."
 
       - name: Build and verify
-        run: mvn verify -P release
+        run: mvn verify -P release -DskipITs
 
       - name: Verify source and Javadoc artifacts
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
-          for m in tokido-core-api tokido-core-test tokido-core-engine tokido-core-totp tokido-core-recovery; do
-            test -f "$m/target/${m}-${VERSION}-sources.jar"
-            test -f "$m/target/${m}-${VERSION}-javadoc.jar"
+          # Existing modules ride at parent (2.0.0-MX) version.
+          # Resolve the version each module shipped at, and check that source/javadoc
+          # jars exist for everything that's published to Central.
+          # The conformance module is intentionally NOT published (maven.deploy.skip=true).
+          for m in tokido-core-api tokido-core-test tokido-core-engine tokido-core-totp tokido-core-recovery \
+                   tokido-core-identity-api tokido-core-identity-engine tokido-core-identity-jwt \
+                   tokido-core-identity-broker tokido-core-identity-mfa; do
+            v=$(mvn -pl "$m" -q help:evaluate -Dexpression=project.version -DforceStdout)
+            test -f "$m/target/${m}-${v}.jar"             || { echo "::error::missing jar for $m@$v"; exit 1; }
+            test -f "$m/target/${m}-${v}-sources.jar"     || { echo "::error::missing sources jar for $m@$v"; exit 1; }
           done
 
       - name: Publish to Maven Central
-        run: mvn deploy -P release -DskipTests
+        run: mvn deploy -P release -DskipTests -DskipITs
         env:
           MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
           MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}

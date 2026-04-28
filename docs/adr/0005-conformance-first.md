@@ -9,7 +9,7 @@ The OpenID Foundation publishes a conformance suite at `gitlab.com/openid/confor
 
 ## Decision
 
-Wire the suite into CI at M0, against a stub adapter that returns `501 Not Implemented` for every OIDC endpoint. The suite reports `0/47` on the basic certification test plan at M0. The number is the burn-up chart.
+Wire the suite into CI at M0, against a stub adapter that returns `501 Not Implemented` for every OIDC endpoint. The suite reports `0/N` on the basic certification test plan at M0, where `N` is the module count reported by the OIDF variant at runtime (35 in v5.1.42 against the chosen `oidcc-basic-certification-test-plan` variant; subject to change as OIDF updates). The number is the burn-up chart.
 
 Concretely:
 
@@ -23,4 +23,4 @@ Concretely:
 
 - Every PR, from PR #1, is graded against the spec.
 - Pass-rate must not regress on any PR (strict gate). Refactor PRs that move tests must update fixtures within the same PR.
-- Pinning the OIDF Docker image SHA in `docker-compose.yml` insulates against upstream drift.
+- Pinning the OIDF Docker image to a specific digest in `docker-compose.yml` insulates against upstream drift, including changes to the module count for a given test plan.

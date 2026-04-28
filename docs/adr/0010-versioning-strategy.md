@@ -27,3 +27,16 @@ Split-version scheme:
 
 - Single version (everything at `2.0.0-MX`): conflates alpha and stable maturity signals.
 - Identity-only release with parent stuck at SNAPSHOT: Maven requires resolvable parent at release time, blocks the approach.
+
+## Release tooling
+
+The CI release workflow (`.github/workflows/release.yml`) does **not** auto-bump versions from the tag. The maintainer bumps versions manually before tagging:
+
+- Parent: `2.0.0-MX-SNAPSHOT` → `2.0.0-MX`
+- Identity children: `0.1.0-MX-SNAPSHOT` → `0.1.0-MX`
+- All `<parent><version>` references in children: bumped to match
+- The `<tokido.core.version>` property in parent (used by `dependencyManagement` for existing-modules cross-deps): bumped to match the parent
+
+The release workflow runs `mvn deploy -P release` and trusts the tagged commit's poms to be release-ready. A guard step fails the workflow fast if any pom still has `-SNAPSHOT`.
+
+Why manual: Maven's `versions:set` plugin operates on the whole reactor with one version, which is incompatible with the split-version scheme. Custom shell-XML editing in CI to handle the split would be brittle. Manual maintainer edits are deterministic and reviewable in the release PR.

@@ -15,5 +15,5 @@
     "oidcc-scope-profile",
     "oidcc-userinfo-bearer-header"
   ],
-  "comment": "Initial M0 list — small subset selected for stub-mode reachability; expanded at M2 when engine MVP lands. Per-milestone pass-rate floor: M0=0, M1=0, M2>=80%, M3>=80%, M4>=85%, M5>=95%."
+  "comment": "Initial M0 list — small subset selected for stub-mode reachability; expanded at M2 when engine MVP lands. Per-milestone pass-rate floor: M0=0, M1=0, M2>=80%, M3>=80%, M4>=85%, M5>=95%. Total module count derived from the OIDF variant at runtime (35 in v5.1.42 for the basic plan); adjust the floor calculation accordingly when totals change."
 }
