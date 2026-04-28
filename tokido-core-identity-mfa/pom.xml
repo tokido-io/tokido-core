@@ -7,11 +7,11 @@
     <parent>
         <groupId>io.tokido</groupId>
         <artifactId>tokido-core</artifactId>
-        <version>2.0.0-M0-SNAPSHOT</version>
+        <version>2.0.0-M0</version>
     </parent>
 
     <artifactId>tokido-core-identity-mfa</artifactId>
-    <version>0.1.0-M0-SNAPSHOT</version>
+    <version>0.1.0-M0</version>
 
     <name>Tokido Core Identity MFA</name>
     <description>Bridge between the tokido-core OIDC extension and existing MFA modules for step-up authentication and AMR/ACR claim emission.</description>
