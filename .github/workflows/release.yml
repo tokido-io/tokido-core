@@ -72,6 +72,7 @@ jobs:
             v=$(mvn -pl "$m" -q help:evaluate -Dexpression=project.version -DforceStdout)
             test -f "$m/target/${m}-${v}.jar"             || { echo "::error::missing jar for $m@$v"; exit 1; }
             test -f "$m/target/${m}-${v}-sources.jar"     || { echo "::error::missing sources jar for $m@$v"; exit 1; }
+            test -f "$m/target/${m}-${v}-javadoc.jar"     || { echo "::error::missing javadoc jar for $m@$v"; exit 1; }
           done
 
       - name: Publish to Maven Central
