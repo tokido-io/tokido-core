@@ -254,7 +254,7 @@ class OidcConformanceIT {
                     "plan creation failed: " + response.statusCode()
                             + "\n" + response.body());
         }
-        return extractStringField(response.body(), "id");
+        return JsonScrape.extractStringField(response.body(), "id");
     }
 
     /**
@@ -272,7 +272,7 @@ class OidcConformanceIT {
                     "GET /api/plan/" + planId + " failed: " + response.statusCode()
                             + "\n" + response.body());
         }
-        return extractModuleNames(response.body());
+        return JsonScrape.extractModuleNames(response.body());
     }
 
     /**
@@ -295,7 +295,7 @@ class OidcConformanceIT {
                     "test instance creation failed for module " + moduleName
                             + ": " + response.statusCode() + "\n" + response.body());
         }
-        return extractStringField(response.body(), "id");
+        return JsonScrape.extractStringField(response.body(), "id");
     }
 
     /**
@@ -310,9 +310,9 @@ class OidcConformanceIT {
                         HttpRequest.newBuilder(SUITE_BASE.resolve("/api/info/" + testId))
                                 .GET());
                 String body = response.body();
-                String status = extractStringFieldOrEmpty(body, "status");
+                String status = JsonScrape.extractStringFieldOrEmpty(body, "status");
                 if ("FINISHED".equals(status) || "INTERRUPTED".equals(status)) {
-                    return extractStringFieldOrEmpty(body, "result");
+                    return JsonScrape.extractStringFieldOrEmpty(body, "result");
                 }
             } catch (Exception ignored) {
                 // Transient error — keep polling.
@@ -358,77 +358,4 @@ class OidcConformanceIT {
         }
     }
 
-    /**
-     * Minimal JSON field extractor sufficient for string IDs and enum values.
-     * The full API response is logged on failure for diagnosis.
-     */
-    private static String extractStringField(String json, String field) {
-        String key = "\"" + field + "\"";
-        int idx = json.indexOf(key);
-        if (idx < 0) {
-            throw new IllegalStateException(
-                    "field '" + field + "' missing in JSON: " + json);
-        }
-        int colon = json.indexOf(':', idx + key.length());
-        // Skip whitespace after colon.
-        int pos = colon + 1;
-        while (pos < json.length() && Character.isWhitespace(json.charAt(pos))) pos++;
-        if (pos >= json.length()) {
-            throw new IllegalStateException("field '" + field + "' has no value in: " + json);
-        }
-        if (json.charAt(pos) == '"') {
-            int end = json.indexOf('"', pos + 1);
-            return json.substring(pos + 1, end);
-        }
-        // Non-string value (number, boolean) — extract until delimiter.
-        int end = pos;
-        while (end < json.length()
-                && json.charAt(end) != ','
-                && json.charAt(end) != '}'
-                && json.charAt(end) != ']') {
-            end++;
-        }
-        return json.substring(pos, end).trim();
-    }
-
-    /** Like {@link #extractStringField} but returns empty string when the field is absent. */
-    private static String extractStringFieldOrEmpty(String json, String field) {
-        try {
-            return extractStringField(json, field);
-        } catch (IllegalStateException e) {
-            return "";
-        }
-    }
-
-    /**
-     * Extracts all {@code testModule} name values from the {@code modules} array
-     * in the plan JSON response.
-     *
-     * <p>Plan JSON shape (confirmed by live probe):
-     * <pre>{@code
-     * {
-     *   "id": "...",
-     *   "modules": [
-     *     {"testModule": "oidcc-server", "variant": {...}, "instances": []},
-     *     {"testModule": "oidcc-userinfo-get", "variant": {...}, "instances": []},
-     *     ...
-     *   ]
-     * }
-     * }</pre>
-     */
-    private static List<String> extractModuleNames(String planJson) {
-        List<String> names = new ArrayList<>();
-        String key = "\"testModule\"";
-        int search = 0;
-        while (true) {
-            int idx = planJson.indexOf(key, search);
-            if (idx < 0) break;
-            int colon = planJson.indexOf(':', idx + key.length());
-            int q1 = planJson.indexOf('"', colon + 1);
-            int q2 = planJson.indexOf('"', q1 + 1);
-            names.add(planJson.substring(q1 + 1, q2));
-            search = q2 + 1;
-        }
-        return names;
-    }
 }
