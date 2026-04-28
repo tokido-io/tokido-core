@@ -1,12 +1,40 @@
 services:
-  conformance-suite:
-    image: registry.gitlab.com/openid/conformance-suite@sha256:81494ae20f7cb1f4340931675e982dd2224e65e60548b6e714ad845cc8fa4aed
-    ports:
-      - "8443:8443"
-    environment:
-      - JAVA_OPTS=-Xmx512m
+  mongodb:
+    image: mongo:6.0
     healthcheck:
-      test: ["CMD", "curl", "-f", "https://localhost:8443/api/info"]
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 5s
       timeout: 3s
-      retries: 30
+      retries: 20
+
+  conformance-suite:
+    image: registry.gitlab.com/openid/conformance-suite@sha256:81494ae20f7cb1f4340931675e982dd2224e65e60548b6e714ad845cc8fa4aed
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    ports:
+      # The prebuilt container image runs the Java application directly on HTTP/8080
+      # (no nginx TLS proxy bundled).  We expose it on host port 8080 to match.
+      - "8080:8080"
+    environment:
+      - MONGODB_HOST=mongodb
+      # devmode=true injects a dummy "developer" admin user so the API is
+      # accessible without real OAuth credentials.  The Google/GitLab client
+      # IDs must still be non-empty to pass Spring Boot's property validation;
+      # "dummy" values are harmless because devmode bypasses the actual OIDC
+      # flow entirely.
+      - OIDC_GOOGLE_CLIENTID=dummy
+      - OIDC_GOOGLE_SECRET=dummy
+      - OIDC_GITLAB_CLIENTID=dummy
+      - OIDC_GITLAB_SECRET=dummy
+      - JAVA_EXTRA_ARGS=-Dfintechlabs.devmode=true -Xmx512m
+    extra_hosts:
+      # On Linux (including CI), Docker containers cannot reach the host via
+      # host.docker.internal without this mapping.  On Mac/Windows Docker
+      # Desktop the name resolves automatically and the entry is a no-op.
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/info"]
+      interval: 5s
+      timeout: 5s
+      retries: 100
