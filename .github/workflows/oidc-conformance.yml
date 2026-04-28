@@ -28,6 +28,10 @@ jobs:
         with:
           key: oidf-conformance-suite-${{ hashFiles('tokido-core-identity-conformance/src/test/resources/docker-compose.yml') }}
 
+      # NOTE (revisit at M2): this workflow does NOT upload JaCoCo data to
+      # Codecov. The conformance module's coverage gate is intentionally
+      # skipped at M0 (no main sources). When real engine code lands at M2
+      # and the IT exercises it, add a Codecov upload step mirroring ci.yml.
       - name: Run OIDF conformance suite
         env:
           CONFORMANCE_FLOOR: ${{ vars.CONFORMANCE_FLOOR || '0' }}

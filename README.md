@@ -29,7 +29,9 @@ The OIDC extension is being built across six releases (M0 → M5). The current r
 | `tokido-core-identity-broker` | M3 (placeholder pom in M0) | not yet introduced | n/a | OIDC RP federation; lands at M3 |
 | `tokido-core-identity-mfa` | M4 (placeholder pom in M0) | not yet introduced | n/a | Bridge to existing MFA modules; lands at M4 |
 
-See `docs/adr/` for architectural decisions.
+> Coverage gates are intentionally suppressed in M0 (modules contain no Java sources yet); they re-engage at M1 when SPIs and protocol value types land.
+
+The release cadence and milestone definitions are documented in [ADR-0004](docs/adr/0004-release-cadence.md). See `docs/adr/` for the full architectural decision record.
 
 ## Quick start
 

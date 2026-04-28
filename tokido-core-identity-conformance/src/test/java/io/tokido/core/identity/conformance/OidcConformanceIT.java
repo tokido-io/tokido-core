@@ -314,8 +314,9 @@ class OidcConformanceIT {
                 if ("FINISHED".equals(status) || "INTERRUPTED".equals(status)) {
                     return JsonScrape.extractStringFieldOrEmpty(body, "result");
                 }
-            } catch (Exception ignored) {
-                // Transient error — keep polling.
+            } catch (Exception e) {
+                // Transient error — keep polling, but log so persistent failures surface in CI logs.
+                System.err.println("poll attempt failed: " + e.getClass().getSimpleName() + ": " + e.getMessage());
             }
             Thread.sleep(3_000);
         }

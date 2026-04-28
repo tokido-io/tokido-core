@@ -31,19 +31,9 @@ final class StubAdapter {
 
     static StubAdapter start(int requestedPort) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress(requestedPort), 0);
-        for (String path : OIDC_ENDPOINTS) {
-            server.createContext(path, exchange -> {
-                exchange.sendResponseHeaders(501, -1);
-                exchange.close();
-            });
-        }
-        // Default handler for unmatched paths: 404
         server.createContext("/", exchange -> {
-            if (OIDC_ENDPOINTS.contains(exchange.getRequestURI().getPath())) {
-                exchange.sendResponseHeaders(501, -1);
-            } else {
-                exchange.sendResponseHeaders(404, -1);
-            }
+            int status = OIDC_ENDPOINTS.contains(exchange.getRequestURI().getPath()) ? 501 : 404;
+            exchange.sendResponseHeaders(status, -1);
             exchange.close();
         });
         server.start();
