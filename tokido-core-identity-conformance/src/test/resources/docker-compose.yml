@@ -1,0 +1,12 @@
+services:
+  conformance-suite:
+    image: registry.gitlab.com/openid/conformance-suite@sha256:81494ae20f7cb1f4340931675e982dd2224e65e60548b6e714ad845cc8fa4aed
+    ports:
+      - "8443:8443"
+    environment:
+      - JAVA_OPTS=-Xmx512m
+    healthcheck:
+      test: ["CMD", "curl", "-f", "https://localhost:8443/api/info"]
+      interval: 5s
+      timeout: 3s
+      retries: 30

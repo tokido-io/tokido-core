@@ -1,0 +1,19 @@
+{
+  "plan": "oidcc-basic-certification-test-plan",
+  "variant": {
+    "server_metadata": "discovery",
+    "client_registration": "static_client",
+    "response_type": "code",
+    "client_authn_type": "client_secret_basic"
+  },
+  "required_tests": [
+    "oidcc-server",
+    "oidcc-discovery-issuer-not-matching-config",
+    "oidcc-codereuse",
+    "oidcc-redirect-uri-query-added",
+    "oidcc-response-type-missing",
+    "oidcc-scope-profile",
+    "oidcc-userinfo-bearer-header"
+  ],
+  "comment": "Initial M0 list — small subset selected for stub-mode reachability; expanded at M2 when engine MVP lands. Per-milestone pass-rate floor: M0=0, M1=0, M2>=80%, M3>=80%, M4>=85%, M5>=95%."
+}
