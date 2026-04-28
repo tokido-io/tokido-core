@@ -18,7 +18,12 @@
 
     <properties>
         <maven.deploy.skip>true</maven.deploy.skip>
-        <central.publishing.skip>true</central.publishing.skip>
+        <!--
+            central-publishing-maven-plugin's actual user property is `skipPublishing`,
+            not `central.publishing.skip`. The wrong name is a no-op, and the plugin
+            still attempts to publish the conformance jar.
+        -->
+        <skipPublishing>true</skipPublishing>
         <gpg.skip>true</gpg.skip>
     </properties>
 
