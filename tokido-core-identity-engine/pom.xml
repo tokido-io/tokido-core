@@ -7,11 +7,11 @@
     <parent>
         <groupId>io.tokido</groupId>
         <artifactId>tokido-core</artifactId>
-        <version>2.0.0-M0</version>
+        <version>2.0.0-M1-SNAPSHOT</version>
     </parent>
 
     <artifactId>tokido-core-identity-engine</artifactId>
-    <version>0.1.0-M0</version>
+    <version>0.1.0-M1-SNAPSHOT</version>
 
     <name>Tokido Core Identity Engine</name>
     <description>Pure-function OIDC protocol handlers for the tokido-core OIDC extension.</description>
