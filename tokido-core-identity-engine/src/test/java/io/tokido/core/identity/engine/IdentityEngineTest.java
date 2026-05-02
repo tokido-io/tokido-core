@@ -76,6 +76,7 @@ class IdentityEngineTest {
                 .consentStore(stubConsentStore())
                 .keyStore(stubKeyStore())
                 .tokenSigner(stubSigner())
+                .jwksKeyRenderer(stubJwksRenderer())
                 .clock(Clock.fixed(Instant.parse("2026-05-01T00:00:00Z"), ZoneOffset.UTC))
                 .eventSink((t, ts, a) -> { /* test sink */ })
                 .build();
@@ -95,8 +96,6 @@ class IdentityEngineTest {
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> engine.userInfo(new UserInfoRequest("at")))
                 .isInstanceOf(UnsupportedOperationException.class);
-        assertThatThrownBy(engine::jwks)
-                .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> engine.introspect(new IntrospectionRequest("t", null, "c")))
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> engine.revoke(new RevocationRequest("t", null, "c")))
@@ -109,6 +108,30 @@ class IdentityEngineTest {
     void discoveryReturnsDocument() {
         IdentityEngine engine = fullyWiredEngine();
         assertThat(engine.discovery().issuer()).isEqualTo(URI.create("https://issuer.example/"));
+    }
+
+    @Test
+    void jwksDelegatesToRenderer() {
+        // Engine wired with stub key store + stub renderer; assertion is that jwks()
+        // ATTEMPTS to delegate (i.e., propagates the stub's UoE rather than the M1
+        // engine-level UoE). For richer testing see JwksHandlerTest.
+        IdentityEngine engine = fullyWiredEngine();
+        assertThatThrownBy(engine::jwks).isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void builderRejectsMissingJwksKeyRenderer() {
+        assertThatNullPointerException().isThrownBy(() ->
+                IdentityEngine.builder()
+                        .issuer(URI.create("https://issuer.example/"))
+                        .clientStore(stubClientStore())
+                        .resourceStore(stubResourceStore())
+                        .tokenStore(stubTokenStore())
+                        .userStore(stubUserStore())
+                        .consentStore(stubConsentStore())
+                        .keyStore(stubKeyStore())
+                        .tokenSigner(stubSigner())
+                        .build());
     }
 
     @Test
@@ -128,6 +151,7 @@ class IdentityEngineTest {
                 .consentStore(stubConsentStore())
                 .keyStore(stubKeyStore())
                 .tokenSigner(stubSigner())
+                .jwksKeyRenderer(stubJwksRenderer())
                 .build();
     }
 
@@ -187,5 +211,9 @@ class IdentityEngineTest {
 
     private TokenSigner stubSigner() {
         return (payload, key) -> { throw new UnsupportedOperationException(); };
+    }
+
+    private io.tokido.core.identity.key.JwksKeyRenderer stubJwksRenderer() {
+        return key -> { throw new UnsupportedOperationException("test stub"); };
     }
 }

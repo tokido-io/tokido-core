@@ -20,7 +20,7 @@ import java.util.Map;
  * <p>Currently supports RS256 only at M2.RC1.
  */
 @API(status = API.Status.STABLE, since = "0.1.0-M2")
-public final class JwksRenderer {
+public final class JwksRenderer implements io.tokido.core.identity.key.JwksKeyRenderer {
 
     /**
      * Convert a {@link SigningKey} to a public-only {@link JsonWebKey}.

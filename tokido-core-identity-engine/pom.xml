@@ -41,6 +41,14 @@
             <artifactId>tokido-core-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+            NOTE: identity-engine MUST NOT depend on identity-jwt at any scope
+            (identity-jwt depends on identity-engine for the TokenSigner SPI;
+            adding the reverse edge creates a Maven reactor cycle). Real
+            integration of JwksRenderer + JwksHandler happens in the
+            conformance module (M2.RC1 Task 21). JwksHandlerTest in this
+            module uses an inline stub JwksKeyRenderer.
+        -->
     </dependencies>
 
 </project>

@@ -1,5 +1,6 @@
 package io.tokido.core.identity.engine;
 
+import io.tokido.core.identity.key.JwksKeyRenderer;
 import io.tokido.core.identity.key.KeyStore;
 import io.tokido.core.identity.protocol.AuthenticationState;
 import io.tokido.core.identity.protocol.AuthorizeRequest;
@@ -51,6 +52,7 @@ public final class IdentityEngine {
     private final ConsentStore consentStore;
     private final KeyStore keyStore;
     private final TokenSigner tokenSigner;
+    private final JwksKeyRenderer jwksKeyRenderer;
     private final Clock clock;
     private final EventSink eventSink;
 
@@ -63,6 +65,7 @@ public final class IdentityEngine {
         this.consentStore = Objects.requireNonNull(b.consentStore, "consentStore");
         this.keyStore = Objects.requireNonNull(b.keyStore, "keyStore");
         this.tokenSigner = Objects.requireNonNull(b.tokenSigner, "tokenSigner");
+        this.jwksKeyRenderer = Objects.requireNonNull(b.jwksKeyRenderer, "jwksKeyRenderer");
         this.clock = b.clock != null ? b.clock : Clock.systemUTC();
         this.eventSink = b.eventSink != null ? b.eventSink : EventSink.noop();
     }
@@ -122,7 +125,7 @@ public final class IdentityEngine {
      * @return the JWK set served at the JWKS endpoint
      */
     public JsonWebKeySet jwks() {
-        throw new UnsupportedOperationException("IdentityEngine.jwks lands at M2");
+        return new io.tokido.core.identity.engine.jwks.JwksHandler(keyStore, jwksKeyRenderer).build();
     }
 
     /**
@@ -166,6 +169,7 @@ public final class IdentityEngine {
         private ConsentStore consentStore;
         private KeyStore keyStore;
         private TokenSigner tokenSigner;
+        private JwksKeyRenderer jwksKeyRenderer;
         private Clock clock;
         private EventSink eventSink;
 
@@ -218,6 +222,12 @@ public final class IdentityEngine {
          * @return this builder
          */
         public Builder tokenSigner(TokenSigner v)      { this.tokenSigner = v; return this; }
+
+        /**
+         * @param v JWK renderer; required
+         * @return this builder
+         */
+        public Builder jwksKeyRenderer(JwksKeyRenderer v) { this.jwksKeyRenderer = v; return this; }
 
         /**
          * @param v clock; optional (defaults to {@link Clock#systemUTC()})
