@@ -56,6 +56,32 @@
                     <quiet>true</quiet>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.revapi</groupId>
+                <artifactId>revapi-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>api-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <!--
+                                Baseline: latest released version on Maven Central.
+                                Until the first 0.1.0-MX release exists on Central, the
+                                plugin has nothing to compare against — skipWhenNoOldArtifacts
+                                keeps the build green during M1's verify, then engages
+                                automatically once 0.1.0-M1 publishes. ADR-0006 requires
+                                breaking changes to be accompanied by an ADR.
+                            -->
+                            <oldVersion>RELEASE</oldVersion>
+                            <failOnMissingConfigurationFiles>false</failOnMissingConfigurationFiles>
+                            <skipWhenNoOldArtifacts>true</skipWhenNoOldArtifacts>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 </project>
