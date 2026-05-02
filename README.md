@@ -17,19 +17,21 @@ Production-grade MFA toolkit for Java. TOTP, recovery codes, extensible factors.
 
 ## OIDC extension status (in development — alpha)
 
-The OIDC extension is being built across six releases (M0 → M5). The current release is **`0.1.0-M1`** — the **public unblock event for downstream framework adapters** (`tokido-spring`, `tokido-quarkus`). All six core storage SPIs and the full protocol value-type surface are now `@API(STABLE)`.
+The OIDC extension is being built across six releases (M0 → M5). The current release is **`0.1.0-M1`** (Maven Central). The next milestone is **`0.1.0-M2.RC1`** (git-only sub-release on the `m2-rc1-engine` branch) — the engine's `authorize`, `token` (code grant + PKCE), `userInfo`, `discovery`, and `jwks` methods are now implemented; the OIDF basic-cert conformance harness (`tokido-core-identity-conformance`) wires a real `IdentityEngine` via `EngineAdapter`.
 
-**OIDC basic conformance: 0/35** (M1 — engine façade still throws `UnsupportedOperationException`; conformance pass-rate climbs as engine handlers land at M2.)
+**OIDC basic conformance: target ≥ 18/35 at M2.RC1** (badge above tracks live pass-count).
+
+Capabilities at M2.RC1: `authorization_code` grant + PKCE (S256/plain), ID-tokens (RS256), refresh tokens (issued; redemption at M2.RC2), discovery, JWKS, userinfo. ADR-0007 (key rotation) and ADR-0008 (auth-code theft detection) referenced.
 
 | Module | Introduced | API status | Coverage | Notes |
 |---|---|---|---|---|
 | `tokido-core-identity-api` | M0 | `@API(STABLE)` (M1+) | ≥ 90% | Six core SPIs (`ClientStore`, `ResourceStore`, `TokenStore`, `UserStore`, `ConsentStore`, `KeyStore`), protocol request/result value types, `AuthenticationState`, `DiscoveryDocument`, `JsonWebKey`/`JsonWebKeySet`. Surface frozen by `revapi-maven-plugin`; breaking changes require an ADR per ADR-0006. |
-| `tokido-core-identity-engine` | M0 | `@API(STABLE)` façade; impl at M2 | ≥ 90% | `IdentityEngine` Builder + method signatures committed; every method throws `UnsupportedOperationException` until M2. `TokenSigner` and `EventSink` SPIs locked. |
-| `tokido-core-identity-jwt` | M2 (placeholder pom in M0) | not yet introduced | n/a | Nimbus-backed JWT signing; lands at M2 |
+| `tokido-core-identity-engine` | M0 | `@API(STABLE)` façade; impl landing M2.RC1 → M2 | ≥ 90% | M2.RC1: `authorize` / `token` (code grant + PKCE) / `userInfo` / `discovery` / `jwks` implemented. `introspect`/`revoke`/`endSession` deferred to M2.RC2/M2. `TokenSigner` and `EventSink` SPIs locked. |
+| `tokido-core-identity-jwt` | M2.RC1 | `@API(STABLE)` for `NimbusTokenSigner`/`NimbusTokenVerifier`/`JwksRenderer`/`InMemoryKeyStore` | ≥ 90% | Nimbus-backed JWT signing + verification; RS256/ES256/EdDSA supported. |
 | `tokido-core-identity-broker` | M3 (placeholder pom in M0) | not yet introduced | n/a | OIDC RP federation; lands at M3 |
 | `tokido-core-identity-mfa` | M4 (placeholder pom in M0) | not yet introduced | n/a | Bridge to existing MFA modules; lands at M4 |
 
-> Coverage gates are active for `identity-api` and `identity-engine` from M1; the remaining identity modules' gates re-engage as their first main sources land in M2/M3/M4.
+> Coverage gates are active for `identity-api` and `identity-engine` from M1, and for `identity-jwt` from M2.RC1; the remaining identity modules' gates re-engage as their first main sources land in M3/M4.
 
 The release cadence and milestone definitions are documented in [ADR-0004](docs/adr/0004-release-cadence.md). See `docs/adr/` for the full architectural decision record.
 
