@@ -113,7 +113,7 @@ public final class IdentityEngine {
      * @return the OIDC discovery document
      */
     public DiscoveryDocument discovery() {
-        throw new UnsupportedOperationException("IdentityEngine.discovery lands at M2");
+        return new io.tokido.core.identity.engine.discovery.DiscoveryHandler(issuer).build();
     }
 
     /**

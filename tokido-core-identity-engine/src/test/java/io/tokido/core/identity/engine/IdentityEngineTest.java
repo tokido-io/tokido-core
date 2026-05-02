@@ -95,8 +95,6 @@ class IdentityEngineTest {
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> engine.userInfo(new UserInfoRequest("at")))
                 .isInstanceOf(UnsupportedOperationException.class);
-        assertThatThrownBy(engine::discovery)
-                .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(engine::jwks)
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> engine.introspect(new IntrospectionRequest("t", null, "c")))
@@ -105,6 +103,12 @@ class IdentityEngineTest {
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> engine.endSession(new EndSessionRequest(null, null, null)))
                 .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void discoveryReturnsDocument() {
+        IdentityEngine engine = fullyWiredEngine();
+        assertThat(engine.discovery().issuer()).isEqualTo(URI.create("https://issuer.example/"));
     }
 
     @Test
