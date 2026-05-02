@@ -52,6 +52,7 @@ public final class IdentityEngine {
     private final ConsentStore consentStore;
     private final KeyStore keyStore;
     private final TokenSigner tokenSigner;
+    private final TokenVerifier tokenVerifier;
     private final JwksKeyRenderer jwksKeyRenderer;
     private final Clock clock;
     private final EventSink eventSink;
@@ -65,6 +66,7 @@ public final class IdentityEngine {
         this.consentStore = Objects.requireNonNull(b.consentStore, "consentStore");
         this.keyStore = Objects.requireNonNull(b.keyStore, "keyStore");
         this.tokenSigner = Objects.requireNonNull(b.tokenSigner, "tokenSigner");
+        this.tokenVerifier = Objects.requireNonNull(b.tokenVerifier, "tokenVerifier");
         this.jwksKeyRenderer = Objects.requireNonNull(b.jwksKeyRenderer, "jwksKeyRenderer");
         this.clock = b.clock != null ? b.clock : Clock.systemUTC();
         this.eventSink = b.eventSink != null ? b.eventSink : EventSink.noop();
@@ -112,7 +114,9 @@ public final class IdentityEngine {
      * @return one of the {@link UserInfoResult} variants
      */
     public UserInfoResult userInfo(UserInfoRequest req) {
-        throw new UnsupportedOperationException("IdentityEngine.userInfo lands at M2");
+        return new io.tokido.core.identity.engine.userinfo.UserInfoHandler(
+                tokenVerifier, keyStore, userStore)
+                .handle(req);
     }
 
     /**
@@ -174,6 +178,7 @@ public final class IdentityEngine {
         private ConsentStore consentStore;
         private KeyStore keyStore;
         private TokenSigner tokenSigner;
+        private TokenVerifier tokenVerifier;
         private JwksKeyRenderer jwksKeyRenderer;
         private Clock clock;
         private EventSink eventSink;
@@ -227,6 +232,12 @@ public final class IdentityEngine {
          * @return this builder
          */
         public Builder tokenSigner(TokenSigner v)      { this.tokenSigner = v; return this; }
+
+        /**
+         * @param v token verifier; required
+         * @return this builder
+         */
+        public Builder tokenVerifier(TokenVerifier v)  { this.tokenVerifier = v; return this; }
 
         /**
          * @param v JWK renderer; required

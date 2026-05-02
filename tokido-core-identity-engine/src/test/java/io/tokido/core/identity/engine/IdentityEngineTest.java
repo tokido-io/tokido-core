@@ -58,6 +58,7 @@ class IdentityEngineTest {
                         .consentStore(stubConsentStore())
                         .keyStore(stubKeyStore())
                         .tokenSigner(stubSigner())
+                        .tokenVerifier(stubTokenVerifier())
                         .build());
     }
 
@@ -72,6 +73,23 @@ class IdentityEngineTest {
                         .consentStore(stubConsentStore())
                         .keyStore(stubKeyStore())
                         .tokenSigner(stubSigner())
+                        .tokenVerifier(stubTokenVerifier())
+                        .build());
+    }
+
+    @Test
+    void builderRejectsMissingTokenVerifier() {
+        assertThatNullPointerException().isThrownBy(() ->
+                IdentityEngine.builder()
+                        .issuer(URI.create("https://issuer.example/"))
+                        .clientStore(stubClientStore())
+                        .resourceStore(stubResourceStore())
+                        .tokenStore(stubTokenStore())
+                        .userStore(stubUserStore())
+                        .consentStore(stubConsentStore())
+                        .keyStore(stubKeyStore())
+                        .tokenSigner(stubSigner())
+                        .jwksKeyRenderer(stubJwksRenderer())
                         .build());
     }
 
@@ -92,6 +110,7 @@ class IdentityEngineTest {
                 .consentStore(stubConsentStore())
                 .keyStore(stubKeyStore())
                 .tokenSigner(stubSigner())
+                .tokenVerifier(stubTokenVerifier())
                 .jwksKeyRenderer(stubJwksRenderer())
                 .clock(Clock.fixed(Instant.parse("2026-05-01T00:00:00Z"), ZoneOffset.UTC))
                 .eventSink((t, ts, a) -> { /* test sink */ })
@@ -103,8 +122,7 @@ class IdentityEngineTest {
     void unimplementedMethodsThrowUnsupportedAtM2Rc1() {
         IdentityEngine engine = fullyWiredEngine();
         // engine.token is wired at Task 18 — covered by tokenHappyPathDelegatesToHandlerAndReturnsSuccess.
-        assertThatThrownBy(() -> engine.userInfo(new UserInfoRequest("at")))
-                .isInstanceOf(UnsupportedOperationException.class);
+        // engine.userInfo is wired at Task 19 — covered by userInfoHappyPathDelegatesToHandlerAndReturnsSuccess.
         assertThatThrownBy(() -> engine.introspect(new IntrospectionRequest("t", null, "c")))
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> engine.revoke(new RevocationRequest("t", null, "c")))
@@ -169,6 +187,7 @@ class IdentityEngineTest {
                 .consentStore(consentStore)
                 .keyStore(stubKeyStore())
                 .tokenSigner(stubSigner())
+                .tokenVerifier(stubTokenVerifier())
                 .jwksKeyRenderer(stubJwksRenderer())
                 .clock(Clock.fixed(Instant.parse("2026-05-02T12:00:00Z"), ZoneOffset.UTC))
                 .build();
@@ -288,6 +307,7 @@ class IdentityEngineTest {
                 .consentStore(stubConsentStore())
                 .keyStore(keyStore)
                 .tokenSigner(tokenSigner)
+                .tokenVerifier(stubTokenVerifier())
                 .jwksKeyRenderer(stubJwksRenderer())
                 .clock(Clock.fixed(now, ZoneOffset.UTC))
                 .build();
@@ -342,7 +362,53 @@ class IdentityEngineTest {
                         .consentStore(stubConsentStore())
                         .keyStore(stubKeyStore())
                         .tokenSigner(stubSigner())
+                        .tokenVerifier(stubTokenVerifier())
                         .build());
+    }
+
+    @Test
+    void userInfoHappyPathDelegatesToHandlerAndReturnsSuccess() {
+        // Wiring smoke test: engine.userInfo(...) must delegate to UserInfoHandler
+        // and return a Success with the sub claim and the user's claim set. The
+        // exhaustive per-branch tests live in UserInfoHandlerTest; here we only
+        // check the engine-to-handler wiring.
+        UserStore userStore = new UserStore() {
+            @Override public io.tokido.core.identity.spi.User findById(String s) {
+                return "alice".equals(s)
+                        ? new io.tokido.core.identity.spi.User("alice", "alice", true, Map.of())
+                        : null;
+            }
+            @Override public io.tokido.core.identity.spi.User findByUsername(String u) { throw new UnsupportedOperationException(); }
+            @Override public io.tokido.core.identity.spi.AuthenticationResult authenticate(String u, String c) { throw new UnsupportedOperationException(); }
+            @Override public io.tokido.core.identity.spi.User findByExternalProvider(String p, String s) { throw new UnsupportedOperationException(); }
+            @Override public io.tokido.core.identity.spi.User createFromExternalProvider(io.tokido.core.identity.spi.BrokeredAuthentication b) { throw new UnsupportedOperationException(); }
+            @Override public Set<UserClaim> claims(String s) {
+                return "alice".equals(s) ? Set.of(new UserClaim("name", "Alice")) : Set.of();
+            }
+        };
+        TokenVerifier verifier = (token, ks) -> Map.of("sub", "alice", "iss", "https://issuer.example/");
+
+        IdentityEngine engine = IdentityEngine.builder()
+                .issuer(URI.create("https://issuer.example/"))
+                .clientStore(stubClientStore())
+                .resourceStore(stubResourceStore())
+                .tokenStore(stubTokenStore())
+                .userStore(userStore)
+                .consentStore(stubConsentStore())
+                .keyStore(stubKeyStore())
+                .tokenSigner(stubSigner())
+                .tokenVerifier(verifier)
+                .jwksKeyRenderer(stubJwksRenderer())
+                .build();
+
+        io.tokido.core.identity.protocol.UserInfoResult result =
+                engine.userInfo(new UserInfoRequest("any-token"));
+
+        assertThat(result).isInstanceOf(io.tokido.core.identity.protocol.UserInfoResult.Success.class);
+        io.tokido.core.identity.protocol.UserInfoResult.Success ok =
+                (io.tokido.core.identity.protocol.UserInfoResult.Success) result;
+        assertThat(ok.subjectId()).isEqualTo("alice");
+        assertThat(ok.claims()).containsExactly(new UserClaim("name", "Alice"));
     }
 
     @Test
@@ -362,6 +428,7 @@ class IdentityEngineTest {
                 .consentStore(stubConsentStore())
                 .keyStore(stubKeyStore())
                 .tokenSigner(stubSigner())
+                .tokenVerifier(stubTokenVerifier())
                 .jwksKeyRenderer(stubJwksRenderer())
                 .build();
     }
@@ -422,6 +489,10 @@ class IdentityEngineTest {
 
     private TokenSigner stubSigner() {
         return (payload, key) -> { throw new UnsupportedOperationException(); };
+    }
+
+    private TokenVerifier stubTokenVerifier() {
+        return (token, keyStore) -> Map.of();
     }
 
     private io.tokido.core.identity.key.JwksKeyRenderer stubJwksRenderer() {
