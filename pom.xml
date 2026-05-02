@@ -115,6 +115,18 @@
                 <version>${junit.version}</version>
                 <scope>test</scope>
             </dependency>
+            <dependency>
+                <groupId>com.tngtech.archunit</groupId>
+                <artifactId>archunit-junit5</artifactId>
+                <version>1.3.0</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.assertj</groupId>
+                <artifactId>assertj-core</artifactId>
+                <version>3.26.3</version>
+                <scope>test</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -136,6 +148,18 @@
                     <groupId>org.jacoco</groupId>
                     <artifactId>jacoco-maven-plugin</artifactId>
                     <version>${jacoco.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.revapi</groupId>
+                    <artifactId>revapi-maven-plugin</artifactId>
+                    <version>0.15.1</version>
+                    <dependencies>
+                        <dependency>
+                            <groupId>org.revapi</groupId>
+                            <artifactId>revapi-java</artifactId>
+                            <version>0.28.4</version>
+                        </dependency>
+                    </dependencies>
                 </plugin>
             </plugins>
         </pluginManagement>
@@ -206,16 +230,20 @@
                                 <goals><goal>jar</goal></goals>
                                 <configuration>
                                     <!--
-                                        Identity modules at M0 contain only package-info.java placeholders.
-                                        Javadoc fails with "No public or protected classes found to document"
-                                        but Maven Central still requires a *-javadoc.jar for every artifact.
-                                        failOnError=false lets the build continue; the plugin produces a
-                                        minimal but valid jar. As real public types land in M1+, this becomes
-                                        a no-op in normal operation but still guards against future empty-module
-                                        regressions.
+                                        Identity modules with @API(STABLE) types must ship complete
+                                        Javadoc. failOnWarnings=true + doclint=all,-missing catches
+                                        structural javadoc errors on locked types. failOnError=false
+                                        is retained because identity modules are empty placeholders at
+                                        Task 1 (javadoc hard-errors "No public or protected classes
+                                        found" which failOnError=false suppresses). The -missing
+                                        exemption is the fallback noted in the task spec; individual
+                                        identity module poms will override with doclint=all once
+                                        @API(STABLE) types land in Task 2+.
                                     -->
                                     <failOnError>false</failOnError>
-                                    <doclint>none</doclint>
+                                    <failOnWarnings>true</failOnWarnings>
+                                    <doclint>all,-missing</doclint>
+                                    <quiet>true</quiet>
                                 </configuration>
                             </execution>
                         </executions>
