@@ -1,5 +1,7 @@
 package io.tokido.core.identity.engine.token;
 
+import io.tokido.core.identity.engine.shared.JsonWriter;
+
 import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
@@ -70,49 +72,16 @@ final class AccessTokenBuilder {
 
         StringBuilder sb = new StringBuilder(256);
         sb.append('{');
-        appendStringField(sb, "iss", issuer.toString(), true);
-        appendStringField(sb, "sub", subjectId, false);
-        appendStringField(sb, "aud", clientId, false);
-        appendStringField(sb, "client_id", clientId, false);
-        appendStringField(sb, "scope", scope, false);
-        appendNumberField(sb, "exp", exp);
-        appendNumberField(sb, "iat", iat);
-        appendStringField(sb, "jti", jti, false);
+        boolean first = true;
+        first = JsonWriter.appendRequiredStringField(sb, "iss", issuer.toString(), first);
+        first = JsonWriter.appendRequiredStringField(sb, "sub", subjectId, first);
+        first = JsonWriter.appendRequiredStringField(sb, "aud", clientId, first);
+        first = JsonWriter.appendRequiredStringField(sb, "client_id", clientId, first);
+        first = JsonWriter.appendRequiredStringField(sb, "scope", scope, first);
+        first = JsonWriter.appendNumberField(sb, "exp", exp, first);
+        first = JsonWriter.appendNumberField(sb, "iat", iat, first);
+        JsonWriter.appendRequiredStringField(sb, "jti", jti, first);
         sb.append('}');
         return sb.toString();
-    }
-
-    private static void appendStringField(StringBuilder sb, String name, String value, boolean first) {
-        if (!first) sb.append(',');
-        sb.append('"').append(name).append("\":");
-        appendJsonString(sb, value);
-    }
-
-    private static void appendNumberField(StringBuilder sb, String name, long value) {
-        sb.append(',').append('"').append(name).append("\":").append(value);
-    }
-
-    private static void appendJsonString(StringBuilder sb, String s) {
-        sb.append('"');
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            switch (c) {
-                case '"'  -> sb.append("\\\"");
-                case '\\' -> sb.append("\\\\");
-                case '\b' -> sb.append("\\b");
-                case '\f' -> sb.append("\\f");
-                case '\n' -> sb.append("\\n");
-                case '\r' -> sb.append("\\r");
-                case '\t' -> sb.append("\\t");
-                default -> {
-                    if (c < 0x20) {
-                        sb.append(String.format("\\u%04x", (int) c));
-                    } else {
-                        sb.append(c);
-                    }
-                }
-            }
-        }
-        sb.append('"');
     }
 }

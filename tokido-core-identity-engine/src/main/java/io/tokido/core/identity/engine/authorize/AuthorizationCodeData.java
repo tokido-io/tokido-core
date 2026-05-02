@@ -1,5 +1,6 @@
 package io.tokido.core.identity.engine.authorize;
 
+import io.tokido.core.identity.engine.shared.JsonWriter;
 import org.apiguardian.api.API;
 
 import java.time.Instant;
@@ -58,13 +59,13 @@ public record AuthorizationCodeData(
         StringBuilder sb = new StringBuilder(128);
         sb.append('{');
         boolean first = true;
-        first = appendStringField(sb, "nonce", nonce, first);
-        first = appendStringField(sb, "codeChallenge", codeChallenge, first);
-        first = appendStringField(sb, "codeChallengeMethod", codeChallengeMethod, first);
-        first = appendScopes(sb, scopes, first);
-        first = appendStringField(sb, "redirectUri", redirectUri, first);
-        first = appendStringField(sb, "authTime", authTime == null ? null : authTime.toString(), first);
-        appendStringField(sb, "requestedAcr", requestedAcr, first);
+        first = JsonWriter.appendOptionalStringField(sb, "nonce", nonce, first);
+        first = JsonWriter.appendOptionalStringField(sb, "codeChallenge", codeChallenge, first);
+        first = JsonWriter.appendOptionalStringField(sb, "codeChallengeMethod", codeChallengeMethod, first);
+        first = JsonWriter.appendOptionalStringArrayField(sb, "scopes", scopes, first);
+        first = JsonWriter.appendRequiredStringField(sb, "redirectUri", redirectUri, first);
+        first = JsonWriter.appendOptionalStringField(sb, "authTime", authTime == null ? null : authTime.toString(), first);
+        JsonWriter.appendOptionalStringField(sb, "requestedAcr", requestedAcr, first);
         sb.append('}');
         return sb.toString();
     }
@@ -120,53 +121,6 @@ public record AuthorizationCodeData(
         }
         return new AuthorizationCodeData(
                 nonce, codeChallenge, codeChallengeMethod, scopes, redirectUri, authTime, requestedAcr);
-    }
-
-    private static boolean appendStringField(StringBuilder sb, String name, String value, boolean first) {
-        if (value == null) return first;
-        if (!first) sb.append(',');
-        sb.append('"').append(name).append("\":");
-        appendJsonString(sb, value);
-        return false;
-    }
-
-    private static boolean appendScopes(StringBuilder sb, Set<String> scopes, boolean first) {
-        if (scopes.isEmpty()) return first;
-        if (!first) sb.append(',');
-        sb.append("\"scopes\":[");
-        boolean firstElem = true;
-        for (String s : scopes) {
-            if (!firstElem) sb.append(',');
-            appendJsonString(sb, s);
-            firstElem = false;
-        }
-        sb.append(']');
-        return false;
-    }
-
-    /** Minimal JSON-string escape: {@code \" \\ \b \f \n \r \t} and ASCII control chars. */
-    private static void appendJsonString(StringBuilder sb, String s) {
-        sb.append('"');
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            switch (c) {
-                case '"'  -> sb.append("\\\"");
-                case '\\' -> sb.append("\\\\");
-                case '\b' -> sb.append("\\b");
-                case '\f' -> sb.append("\\f");
-                case '\n' -> sb.append("\\n");
-                case '\r' -> sb.append("\\r");
-                case '\t' -> sb.append("\\t");
-                default -> {
-                    if (c < 0x20) {
-                        sb.append(String.format("\\u%04x", (int) c));
-                    } else {
-                        sb.append(c);
-                    }
-                }
-            }
-        }
-        sb.append('"');
     }
 
     /**

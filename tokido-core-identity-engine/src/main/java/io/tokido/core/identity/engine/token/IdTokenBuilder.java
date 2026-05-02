@@ -1,6 +1,7 @@
 package io.tokido.core.identity.engine.token;
 
 import io.tokido.core.identity.engine.authorize.AuthorizationCodeData;
+import io.tokido.core.identity.engine.shared.JsonWriter;
 import io.tokido.core.identity.spi.IdentityScope;
 import io.tokido.core.identity.spi.ResourceStore;
 import io.tokido.core.identity.spi.UserClaim;
@@ -108,60 +109,23 @@ final class IdTokenBuilder {
         StringBuilder sb = new StringBuilder(256);
         sb.append('{');
         boolean first = true;
-        first = appendStringField(sb, "iss", issuer.toString(), first);
-        first = appendStringField(sb, "sub", subjectId, first);
-        first = appendStringField(sb, "aud", clientId, first);
-        first = appendNumberField(sb, "exp", exp, first);
-        first = appendNumberField(sb, "iat", iat, first);
+        first = JsonWriter.appendRequiredStringField(sb, "iss", issuer.toString(), first);
+        first = JsonWriter.appendRequiredStringField(sb, "sub", subjectId, first);
+        first = JsonWriter.appendRequiredStringField(sb, "aud", clientId, first);
+        first = JsonWriter.appendNumberField(sb, "exp", exp, first);
+        first = JsonWriter.appendNumberField(sb, "iat", iat, first);
         if (codeData.authTime() != null) {
-            first = appendNumberField(sb, "auth_time", codeData.authTime().getEpochSecond(), first);
+            first = JsonWriter.appendNumberField(sb, "auth_time", codeData.authTime().getEpochSecond(), first);
         }
         if (codeData.nonce() != null) {
-            first = appendStringField(sb, "nonce", codeData.nonce(), first);
+            first = JsonWriter.appendRequiredStringField(sb, "nonce", codeData.nonce(), first);
         }
         for (Map.Entry<String, String> e : claimValues.entrySet()) {
             // RC1: every claim emitted as a JSON string. M3 may introduce
             // typed (number/boolean/object) emission.
-            first = appendStringField(sb, e.getKey(), e.getValue(), first);
+            first = JsonWriter.appendRequiredStringField(sb, e.getKey(), e.getValue(), first);
         }
         sb.append('}');
         return sb.toString();
-    }
-
-    private static boolean appendStringField(StringBuilder sb, String name, String value, boolean first) {
-        if (!first) sb.append(',');
-        sb.append('"').append(name).append("\":");
-        appendJsonString(sb, value);
-        return false;
-    }
-
-    private static boolean appendNumberField(StringBuilder sb, String name, long value, boolean first) {
-        if (!first) sb.append(',');
-        sb.append('"').append(name).append("\":").append(value);
-        return false;
-    }
-
-    private static void appendJsonString(StringBuilder sb, String s) {
-        sb.append('"');
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            switch (c) {
-                case '"'  -> sb.append("\\\"");
-                case '\\' -> sb.append("\\\\");
-                case '\b' -> sb.append("\\b");
-                case '\f' -> sb.append("\\f");
-                case '\n' -> sb.append("\\n");
-                case '\r' -> sb.append("\\r");
-                case '\t' -> sb.append("\\t");
-                default -> {
-                    if (c < 0x20) {
-                        sb.append(String.format("\\u%04x", (int) c));
-                    } else {
-                        sb.append(c);
-                    }
-                }
-            }
-        }
-        sb.append('"');
     }
 }
