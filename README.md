@@ -17,19 +17,19 @@ Production-grade MFA toolkit for Java. TOTP, recovery codes, extensible factors.
 
 ## OIDC extension status (in development — alpha)
 
-The OIDC extension is being built across six releases (M0 → M5). The current release is **`0.1.0-M0`** — scaffolding and conformance harness only; no engine code yet.
+The OIDC extension is being built across six releases (M0 → M5). The current release is **`0.1.0-M1`** — the **public unblock event for downstream framework adapters** (`tokido-spring`, `tokido-quarkus`). All six core storage SPIs and the full protocol value-type surface are now `@API(STABLE)`.
 
-**OIDC basic conformance: 0/N** (M0 baseline — stub adapter returns `501 Not Implemented` for all endpoints; conformance pass-rate climbs as the engine implementation lands at M2 onward.)
+**OIDC basic conformance: 0/35** (M1 — engine façade still throws `UnsupportedOperationException`; conformance pass-rate climbs as engine handlers land at M2.)
 
 | Module | Introduced | API status | Coverage | Notes |
 |---|---|---|---|---|
-| `tokido-core-identity-api` | M0 | empty skeleton | n/a | SPIs and protocol value types land at M1 |
-| `tokido-core-identity-engine` | M0 | empty skeleton | n/a | Engine façade and handlers land at M1–M2 |
+| `tokido-core-identity-api` | M0 | `@API(STABLE)` (M1+) | ≥ 90% | Six core SPIs (`ClientStore`, `ResourceStore`, `TokenStore`, `UserStore`, `ConsentStore`, `KeyStore`), protocol request/result value types, `AuthenticationState`, `DiscoveryDocument`, `JsonWebKey`/`JsonWebKeySet`. Surface frozen by `revapi-maven-plugin`; breaking changes require an ADR per ADR-0006. |
+| `tokido-core-identity-engine` | M0 | `@API(STABLE)` façade; impl at M2 | ≥ 90% | `IdentityEngine` Builder + method signatures committed; every method throws `UnsupportedOperationException` until M2. `TokenSigner` and `EventSink` SPIs locked. |
 | `tokido-core-identity-jwt` | M2 (placeholder pom in M0) | not yet introduced | n/a | Nimbus-backed JWT signing; lands at M2 |
 | `tokido-core-identity-broker` | M3 (placeholder pom in M0) | not yet introduced | n/a | OIDC RP federation; lands at M3 |
 | `tokido-core-identity-mfa` | M4 (placeholder pom in M0) | not yet introduced | n/a | Bridge to existing MFA modules; lands at M4 |
 
-> Coverage gates are intentionally suppressed in M0 (modules contain no Java sources yet); they re-engage at M1 when SPIs and protocol value types land.
+> Coverage gates are active for `identity-api` and `identity-engine` from M1; the remaining identity modules' gates re-engage as their first main sources land in M2/M3/M4.
 
 The release cadence and milestone definitions are documented in [ADR-0004](docs/adr/0004-release-cadence.md). See `docs/adr/` for the full architectural decision record.
 

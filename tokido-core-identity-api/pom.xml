@@ -26,18 +26,58 @@
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
         <plugins>
+            <!--
+                identity-api ships @API(STABLE) types whose Javadoc must be
+                complete (master plan §M1 acceptance criterion). Override
+                parent-level loose javadoc with strict settings: failOnError=true
+                so missing Javadoc on a public type fails the build, doclint=all
+                so structural problems also fail.
+            -->
             <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+                <configuration>
+                    <failOnError>true</failOnError>
+                    <failOnWarnings>true</failOnWarnings>
+                    <doclint>all</doclint>
+                    <quiet>true</quiet>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.revapi</groupId>
+                <artifactId>revapi-maven-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>check</id>
+                        <id>api-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
                         <configuration>
-                            <skip>true</skip>
+                            <!--
+                                Baseline: latest released version on Maven Central.
+                                Until the first 0.1.0-MX release exists on Central, the
+                                plugin has nothing to compare against — skipWhenNoOldArtifacts
+                                keeps the build green during M1's verify, then engages
+                                automatically once 0.1.0-M1 publishes. ADR-0006 requires
+                                breaking changes to be accompanied by an ADR.
+                            -->
+                            <oldVersion>RELEASE</oldVersion>
+                            <failOnMissingConfigurationFiles>false</failOnMissingConfigurationFiles>
+                            <skipWhenNoOldArtifacts>true</skipWhenNoOldArtifacts>
                         </configuration>
                     </execution>
                 </executions>
