@@ -2,14 +2,20 @@ package io.tokido.core.identity.engine;
 
 import io.tokido.core.identity.protocol.AuthenticationState;
 import io.tokido.core.identity.protocol.AuthorizeRequest;
+import io.tokido.core.identity.protocol.AuthorizeResult;
 import io.tokido.core.identity.protocol.EndSessionRequest;
 import io.tokido.core.identity.protocol.IntrospectionRequest;
 import io.tokido.core.identity.protocol.RevocationRequest;
 import io.tokido.core.identity.protocol.TokenRequest;
 import io.tokido.core.identity.protocol.UserInfoRequest;
+import io.tokido.core.identity.spi.Client;
 import io.tokido.core.identity.spi.ClientAuthenticationMethod;
 import io.tokido.core.identity.spi.ClientStore;
+import io.tokido.core.identity.spi.Consent;
 import io.tokido.core.identity.spi.ConsentStore;
+import io.tokido.core.identity.spi.GrantType;
+import io.tokido.core.identity.spi.PersistedGrant;
+import io.tokido.core.identity.spi.RefreshTokenUsage;
 import io.tokido.core.identity.spi.ResourceStore;
 import io.tokido.core.identity.spi.TokenStore;
 import io.tokido.core.identity.spi.UserStore;
@@ -20,8 +26,12 @@ import org.junit.jupiter.api.Test;
 
 import java.net.URI;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -84,14 +94,10 @@ class IdentityEngineTest {
     }
 
     @Test
-    void allMethodsThrowUnsupportedAtM1() {
+    void unimplementedMethodsThrowUnsupportedAtM2Rc1() {
         IdentityEngine engine = fullyWiredEngine();
-        AuthorizeRequest auth = new AuthorizeRequest("c", "code", null, Set.of("openid"),
-                null, null, null, null, null, Set.of(), null, null, null, null, Map.of());
         TokenRequest tok = new TokenRequest("authorization_code", "c", null,
                 ClientAuthenticationMethod.NONE, "code", null, null, null, Set.of(), Map.of());
-        assertThatThrownBy(() -> engine.authorize(auth, AuthenticationState.anonymous()))
-                .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> engine.token(tok))
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> engine.userInfo(new UserInfoRequest("at")))
@@ -102,6 +108,88 @@ class IdentityEngineTest {
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> engine.endSession(new EndSessionRequest(null, null, null)))
                 .isInstanceOf(UnsupportedOperationException.class);
+    }
+
+    @Test
+    void authorizeHappyPathDelegatesToHandlerAndReturnsRedirect() {
+        // Wire an engine with non-stub stores for authorize-relevant SPIs
+        // (clientStore, consentStore, tokenStore). Other SPIs remain UoE
+        // stubs because the happy path does not consult them.
+        Client client = new Client(
+                "client-1",
+                Set.of(),
+                Set.of("https://app.example/cb"),
+                Set.of(),
+                Set.of("openid"),
+                Set.of(GrantType.AUTHORIZATION_CODE),
+                Set.of(ClientAuthenticationMethod.NONE),
+                /* requirePkce */ true,
+                /* allowOfflineAccess */ false,
+                Duration.ofMinutes(15),
+                Duration.ofDays(30),
+                RefreshTokenUsage.ONE_TIME,
+                Map.of(),
+                /* enabled */ true);
+
+        Map<String, Client> clients = new HashMap<>();
+        clients.put(client.clientId(), client);
+        ClientStore clientStore = new ClientStore() {
+            @Override public Client findById(String id) { return clients.get(id); }
+            @Override public boolean exists(String id) { return clients.containsKey(id); }
+        };
+
+        Consent consent = new Consent("user-1", client.clientId(),
+                Set.of("openid"), Instant.parse("2027-01-01T00:00:00Z"));
+        ConsentStore consentStore = new ConsentStore() {
+            @Override public Consent find(String s, String c) {
+                return (consent.subjectId().equals(s) && consent.clientId().equals(c)) ? consent : null;
+            }
+            @Override public void store(Consent c) { throw new UnsupportedOperationException(); }
+            @Override public void remove(String s, String c) { throw new UnsupportedOperationException(); }
+        };
+
+        List<PersistedGrant> persisted = new ArrayList<>();
+        TokenStore tokenStore = new TokenStore() {
+            @Override public void store(PersistedGrant g) { persisted.add(g); }
+            @Override public PersistedGrant findByHandle(String h) { throw new UnsupportedOperationException(); }
+            @Override public void remove(String h) { throw new UnsupportedOperationException(); }
+            @Override public void removeAll(String s, String c) { throw new UnsupportedOperationException(); }
+            @Override public void removeAll(String s, String c, GrantType t) { throw new UnsupportedOperationException(); }
+        };
+
+        IdentityEngine engine = IdentityEngine.builder()
+                .issuer(URI.create("https://issuer.example/"))
+                .clientStore(clientStore)
+                .resourceStore(stubResourceStore())
+                .tokenStore(tokenStore)
+                .userStore(stubUserStore())
+                .consentStore(consentStore)
+                .keyStore(stubKeyStore())
+                .tokenSigner(stubSigner())
+                .jwksKeyRenderer(stubJwksRenderer())
+                .clock(Clock.fixed(Instant.parse("2026-05-02T12:00:00Z"), ZoneOffset.UTC))
+                .build();
+
+        AuthorizeRequest req = new AuthorizeRequest(
+                client.clientId(), "code", "https://app.example/cb",
+                Set.of("openid"),
+                "state-x", "n-1",
+                "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", "S256",
+                null, Set.of(), null, null, null, null, Map.of());
+        AuthenticationState session = new AuthenticationState(
+                "user-1", Instant.parse("2026-05-02T11:55:00Z"),
+                Set.of("pwd"), null, Map.of());
+
+        AuthorizeResult result = engine.authorize(req, session);
+
+        assertThat(result).isInstanceOf(AuthorizeResult.Redirect.class);
+        AuthorizeResult.Redirect redirect = (AuthorizeResult.Redirect) result;
+        assertThat(redirect.params())
+                .containsKey("code")
+                .containsEntry("state", "state-x")
+                .containsEntry("iss", "https://issuer.example/");
+        assertThat(persisted).hasSize(1);
+        assertThat(persisted.get(0).type()).isEqualTo(GrantType.AUTHORIZATION_CODE);
     }
 
     @Test

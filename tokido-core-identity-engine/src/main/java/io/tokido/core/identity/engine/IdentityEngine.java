@@ -87,7 +87,9 @@ public final class IdentityEngine {
      * @return one of the {@link AuthorizeResult} variants
      */
     public AuthorizeResult authorize(AuthorizeRequest req, AuthenticationState state) {
-        throw new UnsupportedOperationException("IdentityEngine.authorize lands at M2");
+        return new io.tokido.core.identity.engine.authorize.AuthorizeHandler(
+                issuer, clock, clientStore, consentStore, resourceStore, tokenStore)
+                .handle(req, state);
     }
 
     /**
