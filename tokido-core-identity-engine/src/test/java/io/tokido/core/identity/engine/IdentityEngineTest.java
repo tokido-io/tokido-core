@@ -1,5 +1,6 @@
 package io.tokido.core.identity.engine;
 
+import io.tokido.core.identity.engine.authorize.AuthorizationCodeData;
 import io.tokido.core.identity.protocol.AuthenticationState;
 import io.tokido.core.identity.protocol.AuthorizeRequest;
 import io.tokido.core.identity.protocol.AuthorizeResult;
@@ -7,6 +8,7 @@ import io.tokido.core.identity.protocol.EndSessionRequest;
 import io.tokido.core.identity.protocol.IntrospectionRequest;
 import io.tokido.core.identity.protocol.RevocationRequest;
 import io.tokido.core.identity.protocol.TokenRequest;
+import io.tokido.core.identity.protocol.TokenResult;
 import io.tokido.core.identity.protocol.UserInfoRequest;
 import io.tokido.core.identity.spi.Client;
 import io.tokido.core.identity.spi.ClientAuthenticationMethod;
@@ -14,11 +16,15 @@ import io.tokido.core.identity.spi.ClientStore;
 import io.tokido.core.identity.spi.Consent;
 import io.tokido.core.identity.spi.ConsentStore;
 import io.tokido.core.identity.spi.GrantType;
+import io.tokido.core.identity.spi.IdentityScope;
 import io.tokido.core.identity.spi.PersistedGrant;
 import io.tokido.core.identity.spi.RefreshTokenUsage;
 import io.tokido.core.identity.spi.ResourceStore;
 import io.tokido.core.identity.spi.TokenStore;
+import io.tokido.core.identity.spi.UserClaim;
 import io.tokido.core.identity.spi.UserStore;
+import io.tokido.core.identity.key.KeyMaterial;
+import io.tokido.core.identity.key.KeyState;
 import io.tokido.core.identity.key.KeyStore;
 import io.tokido.core.identity.key.SignatureAlgorithm;
 import io.tokido.core.identity.key.SigningKey;
@@ -96,10 +102,7 @@ class IdentityEngineTest {
     @Test
     void unimplementedMethodsThrowUnsupportedAtM2Rc1() {
         IdentityEngine engine = fullyWiredEngine();
-        TokenRequest tok = new TokenRequest("authorization_code", "c", null,
-                ClientAuthenticationMethod.NONE, "code", null, null, null, Set.of(), Map.of());
-        assertThatThrownBy(() -> engine.token(tok))
-                .isInstanceOf(UnsupportedOperationException.class);
+        // engine.token is wired at Task 18 — covered by tokenHappyPathDelegatesToHandlerAndReturnsSuccess.
         assertThatThrownBy(() -> engine.userInfo(new UserInfoRequest("at")))
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> engine.introspect(new IntrospectionRequest("t", null, "c")))
@@ -190,6 +193,126 @@ class IdentityEngineTest {
                 .containsEntry("iss", "https://issuer.example/");
         assertThat(persisted).hasSize(1);
         assertThat(persisted.get(0).type()).isEqualTo(GrantType.AUTHORIZATION_CODE);
+    }
+
+    @Test
+    void tokenHappyPathDelegatesToHandlerAndReturnsSuccess() {
+        // Wiring smoke test: engine.token(...) must delegate to TokenHandler
+        // and return a Success with non-null access/id/refresh tokens. The
+        // exhaustive per-branch tests live in TokenHandlerTest; here we only
+        // check the engine-to-handler wiring.
+        Client client = new Client(
+                "client-1",
+                Set.of(),
+                Set.of("https://app.example/cb"),
+                Set.of(),
+                Set.of("openid"),
+                Set.of(GrantType.AUTHORIZATION_CODE),
+                Set.of(ClientAuthenticationMethod.NONE),
+                /* requirePkce */ true,
+                false,
+                Duration.ofMinutes(15),
+                Duration.ofDays(30),
+                RefreshTokenUsage.ONE_TIME,
+                Map.of(),
+                true);
+
+        Map<String, Client> clients = new HashMap<>();
+        clients.put(client.clientId(), client);
+        ClientStore clientStore = new ClientStore() {
+            @Override public Client findById(String id) { return clients.get(id); }
+            @Override public boolean exists(String id) { return clients.containsKey(id); }
+        };
+
+        // Pre-seed the token store with a valid (un-consumed) auth code.
+        Instant now = Instant.parse("2026-05-02T12:00:00Z");
+        AuthorizationCodeData data = new AuthorizationCodeData(
+                "n-1",
+                "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+                "S256",
+                Set.of("openid"),
+                "https://app.example/cb",
+                now.minusSeconds(60),
+                null);
+        PersistedGrant code = new PersistedGrant(
+                "CODE", GrantType.AUTHORIZATION_CODE, "user-1", client.clientId(),
+                Set.of("openid"),
+                now.minusSeconds(60), now.plus(Duration.ofMinutes(10)),
+                null, data.toJson());
+        Map<String, PersistedGrant> grants = new HashMap<>();
+        grants.put(code.handle(), code);
+        TokenStore tokenStore = new TokenStore() {
+            @Override public void store(PersistedGrant g) { grants.put(g.handle(), g); }
+            @Override public PersistedGrant findByHandle(String h) { return grants.get(h); }
+            @Override public void remove(String h) { grants.remove(h); }
+            @Override public void removeAll(String s, String c) { grants.values().removeIf(g -> g.subjectId().equals(s) && g.clientId().equals(c)); }
+            @Override public void removeAll(String s, String c, GrantType t) { grants.values().removeIf(g -> g.subjectId().equals(s) && g.clientId().equals(c) && g.type() == t); }
+        };
+
+        UserStore userStore = new UserStore() {
+            @Override public io.tokido.core.identity.spi.User findById(String s) { throw new UnsupportedOperationException(); }
+            @Override public io.tokido.core.identity.spi.User findByUsername(String u) { throw new UnsupportedOperationException(); }
+            @Override public io.tokido.core.identity.spi.AuthenticationResult authenticate(String u, String c) { throw new UnsupportedOperationException(); }
+            @Override public io.tokido.core.identity.spi.User findByExternalProvider(String p, String s) { throw new UnsupportedOperationException(); }
+            @Override public io.tokido.core.identity.spi.User createFromExternalProvider(io.tokido.core.identity.spi.BrokeredAuthentication b) { throw new UnsupportedOperationException(); }
+            @Override public Set<UserClaim> claims(String s) { return Set.of(); }
+        };
+
+        IdentityScope openid = new IdentityScope("openid", null, Set.of("sub"));
+        ResourceStore resourceStore = new ResourceStore() {
+            @Override public IdentityScope findIdentityScope(String n) { return "openid".equals(n) ? openid : null; }
+            @Override public io.tokido.core.identity.spi.ProtectedResource findProtectedResource(String n) { throw new UnsupportedOperationException(); }
+            @Override public Set<IdentityScope> findIdentityScopesByName(Set<String> ns) { throw new UnsupportedOperationException(); }
+            @Override public Set<io.tokido.core.identity.spi.ProtectedResource> findResourcesByScope(Set<String> ns) { throw new UnsupportedOperationException(); }
+        };
+
+        SigningKey key = new SigningKey(
+                "test-kid",
+                SignatureAlgorithm.RS256,
+                new KeyMaterial(new byte[] {0x00}, SignatureAlgorithm.RS256),
+                KeyState.ACTIVE,
+                now.minusSeconds(3600),
+                now.plusSeconds(3600));
+        KeyStore keyStore = new KeyStore() {
+            @Override public SigningKey activeSigningKey(SignatureAlgorithm a) { return key; }
+            @Override public Set<SigningKey> allKeys() { return Set.of(key); }
+        };
+        TokenSigner tokenSigner = (payload, k) -> "signed." + Integer.toHexString(payload.hashCode());
+
+        IdentityEngine engine = IdentityEngine.builder()
+                .issuer(URI.create("https://issuer.example/"))
+                .clientStore(clientStore)
+                .resourceStore(resourceStore)
+                .tokenStore(tokenStore)
+                .userStore(userStore)
+                .consentStore(stubConsentStore())
+                .keyStore(keyStore)
+                .tokenSigner(tokenSigner)
+                .jwksKeyRenderer(stubJwksRenderer())
+                .clock(Clock.fixed(now, ZoneOffset.UTC))
+                .build();
+
+        TokenRequest req = new TokenRequest(
+                "authorization_code",
+                client.clientId(),
+                /* clientSecret */ null,
+                ClientAuthenticationMethod.NONE,
+                "CODE",
+                "https://app.example/cb",
+                "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+                /* refreshToken */ null,
+                Set.of(),
+                Map.of());
+
+        TokenResult result = engine.token(req);
+
+        assertThat(result).isInstanceOf(TokenResult.Success.class);
+        TokenResult.Success ok = (TokenResult.Success) result;
+        assertThat(ok.accessToken()).isNotNull();
+        assertThat(ok.idToken()).isNotNull();
+        assertThat(ok.refreshToken()).isNotBlank();
+        assertThat(ok.tokenType()).isEqualTo("Bearer");
+        assertThat(ok.expiresIn()).isEqualTo(client.accessTokenLifetime());
     }
 
     @Test

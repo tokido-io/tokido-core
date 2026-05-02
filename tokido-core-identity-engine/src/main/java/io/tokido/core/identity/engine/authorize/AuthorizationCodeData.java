@@ -1,5 +1,7 @@
 package io.tokido.core.identity.engine.authorize;
 
+import org.apiguardian.api.API;
+
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.LinkedHashSet;
@@ -9,7 +11,8 @@ import java.util.Set;
 /**
  * The opaque payload an issued authorization code carries until it is
  * redeemed at the token endpoint. Persisted in {@code PersistedGrant.data}
- * as JSON. Package-private — engine internals only.
+ * as JSON. Public-but-INTERNAL: shared between {@link AuthorizeHandler}
+ * (which writes it) and {@code TokenHandler} (which reads it back at /token).
  *
  * <p>Every field is nullable except {@code scopes} and {@code redirectUri};
  * those are required for the token-endpoint redemption to verify and bind
@@ -30,7 +33,8 @@ import java.util.Set;
  * @param authTime            when the user authenticated; nullable
  * @param requestedAcr        ACR requested via {@code acr_values}; nullable
  */
-record AuthorizationCodeData(
+@API(status = API.Status.INTERNAL, since = "0.1.0-M2.RC1")
+public record AuthorizationCodeData(
         String nonce,
         String codeChallenge,
         String codeChallengeMethod,
@@ -39,7 +43,7 @@ record AuthorizationCodeData(
         Instant authTime,
         String requestedAcr) {
 
-    AuthorizationCodeData {
+    public AuthorizationCodeData {
         scopes = scopes == null ? Set.of() : Set.copyOf(scopes);
         Objects.requireNonNull(redirectUri, "redirectUri");
         if (redirectUri.isBlank()) {
@@ -50,7 +54,7 @@ record AuthorizationCodeData(
     /**
      * @return canonical JSON encoding of this record; null fields are omitted
      */
-    String toJson() {
+    public String toJson() {
         StringBuilder sb = new StringBuilder(128);
         sb.append('{');
         boolean first = true;
@@ -72,7 +76,7 @@ record AuthorizationCodeData(
      * @return reconstructed record
      * @throws IllegalArgumentException if the JSON is malformed or required fields are missing
      */
-    static AuthorizationCodeData fromJson(String json) {
+    public static AuthorizationCodeData fromJson(String json) {
         Objects.requireNonNull(json, "json");
         TinyJsonReader r = new TinyJsonReader(json);
         r.expect('{');

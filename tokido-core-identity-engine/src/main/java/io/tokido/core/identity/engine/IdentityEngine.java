@@ -99,7 +99,10 @@ public final class IdentityEngine {
      * @return one of the {@link TokenResult} variants
      */
     public TokenResult token(TokenRequest req) {
-        throw new UnsupportedOperationException("IdentityEngine.token lands at M2");
+        return new io.tokido.core.identity.engine.token.TokenHandler(
+                issuer, clientStore, tokenStore, userStore, resourceStore,
+                keyStore, tokenSigner, clock, eventSink)
+                .handle(req);
     }
 
     /**
