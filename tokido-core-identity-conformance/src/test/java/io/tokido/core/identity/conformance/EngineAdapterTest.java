@@ -202,6 +202,64 @@ class EngineAdapterTest {
     }
 
     @Test
+    void authorizeWithDuplicateScopesDoesNotCrash() throws Exception {
+        // RFC 6749 §3.3 leaves duplicate scopes underspecified, but the OIDF
+        // suite occasionally sends "openid openid profile" in negative tests.
+        // The adapter must not 500 — Set.of(T...) would throw on duplicates,
+        // so parseScopeList uses a duplicate-tolerant LinkedHashSet.
+        String verifier = "dBjftJeZ4CVPmB92K27uhbUJU1p1r-wW1gFWFOEjXk_dupescp012";
+        String challenge = pkceS256(verifier);
+        String authorizeUrl = "/authorize"
+                + "?response_type=code"
+                + "&client_id=" + EngineAdapter.CLIENT_ID
+                + "&redirect_uri=" + urlEncode("http://localhost:9999/cb")
+                + "&scope=" + urlEncode("openid openid profile")
+                + "&state=dup-scope-state"
+                + "&nonce=n-1"
+                + "&code_challenge=" + challenge
+                + "&code_challenge_method=S256";
+
+        HttpResponse<String> response = get(authorizeUrl);
+
+        // Either a 302 redirect (engine accepted the de-duplicated set) or a
+        // 302/400 with invalid_scope is acceptable — what we forbid is a 500.
+        assertThat(response.statusCode()).isNotEqualTo(500);
+    }
+
+    @Test
+    void userInfoAcceptsLowercaseBearerScheme() throws Exception {
+        // RFC 6750 §2.1 requires case-insensitive scheme matching for "Bearer".
+        TokenExchange exchange = runFullCodeFlow(
+                "openid profile email",
+                "http://localhost:9999/cb",
+                EngineAdapter.CLIENT_ID, EngineAdapter.CLIENT_SECRET);
+        String accessToken = extractStringField(exchange.tokenResponse.body(), "access_token");
+
+        HttpResponse<String> userinfo = client.send(
+                HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/userinfo"))
+                        .header("Authorization", "bearer " + accessToken)
+                        .GET()
+                        .build(),
+                HttpResponse.BodyHandlers.ofString());
+
+        assertThat(userinfo.statusCode()).isEqualTo(200);
+        assertThat(userinfo.body()).contains("\"sub\":\"" + EngineAdapter.SEED_SUBJECT_ID + "\"");
+    }
+
+    @Test
+    void tokenWithBadClientSecretReturns401WithWwwAuthenticate() throws Exception {
+        // RFC 6749 §5.2: invalid_client must return 401 (not 400) when the
+        // client attempted to authenticate, and SHOULD include WWW-Authenticate.
+        TokenExchange exchange = runFullCodeFlow(
+                "openid", "http://localhost:9999/cb",
+                EngineAdapter.CLIENT_ID, "wrong-secret");
+        assertThat(exchange.tokenResponse.statusCode()).isEqualTo(401);
+        assertThat(exchange.tokenResponse.body()).contains("invalid_client");
+        assertThat(exchange.tokenResponse.headers().firstValue("WWW-Authenticate"))
+                .hasValueSatisfying(h -> assertThat(h).startsWith("Basic"));
+    }
+
+    @Test
     void unknownPathReturns404() throws Exception {
         HttpResponse<String> response = get("/no-such-thing");
         assertThat(response.statusCode()).isEqualTo(404);

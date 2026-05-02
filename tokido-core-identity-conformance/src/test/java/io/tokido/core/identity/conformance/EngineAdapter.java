@@ -322,6 +322,12 @@ final class EngineAdapter {
         }
 
         if (result instanceof AuthorizeResult.Redirect redirect) {
+            // EngineAdapter relies on the engine's AuthorizeHandler having
+            // already baked `redirect.params()` into `redirect.redirectUri()`
+            // (see AuthorizeHandler.handle() — appendQuery is applied before
+            // constructing the Redirect record). If the engine contract
+            // changes to return params separately, attach them here via
+            // appendQuery.
             exchange.getResponseHeaders().add("Location", redirect.redirectUri().toString());
             sendStatus(exchange, 302);
             return;
@@ -444,13 +450,14 @@ final class EngineAdapter {
         String clientId;
         String clientSecret;
         ClientAuthenticationMethod authMethod;
-        if (basicAuthHeader != null && basicAuthHeader.startsWith("Basic ")) {
+        // RFC 7235 §2.1 / RFC 7617 require case-insensitive scheme matching.
+        if (basicAuthHeader != null && basicAuthHeader.regionMatches(true, 0, "Basic ", 0, 6)) {
             String decoded = new String(
-                    Base64.getDecoder().decode(basicAuthHeader.substring("Basic ".length()).trim()),
+                    Base64.getDecoder().decode(basicAuthHeader.substring(6).trim()),
                     StandardCharsets.UTF_8);
             int colon = decoded.indexOf(':');
             if (colon < 0) {
-                sendJson(exchange, 400, errorJson("invalid_client", "malformed Basic credentials"));
+                writeInvalidClient(exchange, "malformed Basic credentials");
                 return;
             }
             clientId = decoded.substring(0, colon);
@@ -466,7 +473,7 @@ final class EngineAdapter {
             authMethod = ClientAuthenticationMethod.NONE;
         }
         if (clientId == null || clientId.isBlank()) {
-            sendJson(exchange, 400, errorJson("invalid_client", "client_id is required"));
+            writeInvalidClient(exchange, "client_id is required");
             return;
         }
 
@@ -498,10 +505,33 @@ final class EngineAdapter {
         if (result instanceof TokenResult.Success ok) {
             sendJson(exchange, 200, successJson(ok));
         } else if (result instanceof TokenResult.Error err) {
-            sendJson(exchange, 400, errorJson(err.code(), err.description()));
+            writeTokenError(exchange, err);
         } else {
             sendJson(exchange, 500, errorJson("server_error", "unexpected result"));
         }
+    }
+
+    /**
+     * Render a token-endpoint error per RFC 6749 §5.2: {@code invalid_client}
+     * gets 401 with {@code WWW-Authenticate: Basic} (the suite occasionally
+     * fuzzes credentials in negative tests); everything else stays 400.
+     */
+    private static void writeTokenError(HttpExchange exchange, TokenResult.Error err) throws IOException {
+        if ("invalid_client".equals(err.code())) {
+            writeInvalidClient(exchange, err.description());
+            return;
+        }
+        sendJson(exchange, 400, errorJson(err.code(), err.description()));
+    }
+
+    /**
+     * Render a 401 invalid_client response with the WWW-Authenticate header
+     * RFC 6749 §5.2 says the server "MAY include" — we always do, since the
+     * OIDF certification suite checks for it on Basic-auth failures.
+     */
+    private static void writeInvalidClient(HttpExchange exchange, String description) throws IOException {
+        exchange.getResponseHeaders().add("WWW-Authenticate", "Basic realm=\"tokido\"");
+        sendJson(exchange, 401, errorJson("invalid_client", description));
     }
 
     private static String successJson(TokenResult.Success ok) {
@@ -529,13 +559,14 @@ final class EngineAdapter {
             return;
         }
         String authHeader = exchange.getRequestHeaders().getFirst("Authorization");
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+        // RFC 6750 §2.1 requires case-insensitive scheme matching for "Bearer".
+        if (authHeader == null || !authHeader.regionMatches(true, 0, "Bearer ", 0, 7)) {
             exchange.getResponseHeaders().add("WWW-Authenticate",
                     "Bearer error=\"invalid_token\"");
             sendJson(exchange, 401, errorJson("invalid_token", "missing bearer token"));
             return;
         }
-        String token = authHeader.substring("Bearer ".length()).trim();
+        String token = authHeader.substring(7).trim();
         UserInfoRequest req;
         try {
             req = new UserInfoRequest(token);
@@ -724,10 +755,17 @@ final class EngineAdapter {
         return out;
     }
 
-    /** Parse a space-separated scope list ({@code "a b c"}); null/empty → empty set. */
+    /**
+     * Parse a space-separated scope list ({@code "a b c"}); null/empty → empty
+     * set. Tolerates duplicates ({@code "openid openid profile"}) — the OIDF
+     * suite sends malformed lists in negative tests, and {@code Set.of(T...)}
+     * would throw {@link IllegalArgumentException} on duplicates and surface
+     * as a 500 instead of a 400 invalid_request.
+     */
     private static Set<String> parseScopeList(String raw) {
         if (raw == null || raw.isBlank()) return Set.of();
-        return Set.of(raw.trim().split("\\s+"));
+        String[] parts = raw.trim().split("\\s+");
+        return new java.util.LinkedHashSet<>(java.util.Arrays.asList(parts));
     }
 
     /** Append URL-encoded params to {@code base}, picking {@code ?} or {@code &}. */
