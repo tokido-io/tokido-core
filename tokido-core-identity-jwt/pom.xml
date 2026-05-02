@@ -22,6 +22,10 @@
             <artifactId>tokido-core-identity-api</artifactId>
         </dependency>
         <dependency>
+            <groupId>io.tokido</groupId>
+            <artifactId>tokido-core-identity-engine</artifactId>
+        </dependency>
+        <dependency>
             <groupId>com.nimbusds</groupId>
             <artifactId>nimbus-jose-jwt</artifactId>
         </dependency>
