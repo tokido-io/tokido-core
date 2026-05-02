@@ -40,12 +40,15 @@ public final class DiscoveryHandler {
                 jwks,
                 null, null, null, // introspection, revocation, end_session — M2 final
                 Set.of("code"),
-                Set.of("authorization_code", "refresh_token", "client_credentials"),
+                // RC1 advertises only what the token endpoint actually grants;
+                // refresh_token + client_credentials restored when M2.RC2 / M2 lands them.
+                Set.of("authorization_code"),
                 Set.of("public"),
                 Set.of("RS256"),
                 Set.of("openid", "profile", "email"),
                 Set.of("client_secret_basic", "client_secret_post", "none"),
-                Set.of("sub", "iss", "aud", "exp", "iat", "auth_time", "nonce", "acr", "amr"),
+                // RC1 omits acr/amr — IdTokenBuilder does not yet emit them.
+                Set.of("sub", "iss", "aud", "exp", "iat", "auth_time", "nonce"),
                 Map.of());
     }
 }

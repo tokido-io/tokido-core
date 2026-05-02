@@ -20,8 +20,10 @@ class DiscoveryHandlerTest {
         assertThat(doc.userinfoEndpoint()).isEqualTo(URI.create("https://issuer.example/userinfo"));
         assertThat(doc.jwksUri()).isEqualTo(URI.create("https://issuer.example/jwks"));
         assertThat(doc.responseTypesSupported()).contains("code");
-        assertThat(doc.grantTypesSupported())
-                .contains("authorization_code", "refresh_token", "client_credentials");
+        assertThat(doc.grantTypesSupported()).containsExactly("authorization_code");
+        assertThat(doc.claimsSupported())
+                .contains("sub", "iss", "aud", "exp", "iat", "auth_time", "nonce")
+                .doesNotContain("acr", "amr");
         assertThat(doc.subjectTypesSupported()).contains("public");
         assertThat(doc.idTokenSigningAlgValuesSupported()).contains("RS256");
         assertThat(doc.tokenEndpointAuthMethodsSupported())
