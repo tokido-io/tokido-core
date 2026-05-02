@@ -21,11 +21,11 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Integration test driving the OIDF conformance suite against the {@link StubAdapter}.
+ * Integration test driving the OIDF conformance suite against the {@link EngineAdapter}.
  *
  * <p>Boot order:
  * <ol>
- *   <li>{@link StubAdapter} on a free port (the SUT).</li>
+ *   <li>{@link EngineAdapter} on a free port (the SUT).</li>
  *   <li>OIDF conformance suite + MongoDB via {@code docker compose up}.</li>
  *   <li>Submit a test plan via the suite REST API targeting the SUT's URL.</li>
  *   <li>For each module in the plan, create a test instance via the runner API.</li>
@@ -67,8 +67,11 @@ class OidcConformanceIT {
     // (MongoDB index creation + extensive class scanning).  CI machines are often
     // slower.  10 min provides a generous margin.
     private static final Duration BOOT_TIMEOUT = Duration.ofMinutes(10);
-    // Stub-mode (M0-M1) timeout: 1 minute per module is plenty since stub returns 501 immediately. Re-evaluate at M2 when real engine work begins.
-    private static final Duration MODULE_TIMEOUT = Duration.ofMinutes(1);
+    // M2.RC1 timeout: real engine flows (authorize → token → userinfo, with PKCE
+    // verification and JWS signing on each call) take noticeably longer than the
+    // M0/M1 stub which 501'd instantly. 5 minutes per module is comfortable for
+    // the OIDF basic-cert plan modules; bump if a particular module times out.
+    private static final Duration MODULE_TIMEOUT = Duration.ofMinutes(5);
     private static final Path COMPOSE_FILE =
             Path.of("src/test/resources/docker-compose.yml");
     private static final Path RESULTS_FILE = Path.of("target/conformance-results.json");
@@ -95,12 +98,12 @@ class OidcConformanceIT {
      */
     private static final String PLAN_NAME = "oidcc-basic-certification-test-plan";
 
-    private static StubAdapter sut;
+    private static EngineAdapter sut;
     private static HttpClient http;
 
     @BeforeAll
     static void bootSutAndSuite() throws Exception {
-        sut = StubAdapter.start(0);
+        sut = EngineAdapter.start(0);
 
         // The OIDF container serves plain HTTP on port 8080.
         // Response times over the Colima/Lima SSH tunnel can be 10+ seconds per
@@ -140,11 +143,12 @@ class OidcConformanceIT {
             // entry in docker-compose maps it on Linux/CI; on Mac Docker Desktop / Colima
             // it resolves automatically.
             //
-            // The plan requires two variants (see PLAN_VARIANT) and dummy client
-            // credentials (never actually used since the StubAdapter returns 501).
+            // The plan requires two variants (see PLAN_VARIANT) and the
+            // pre-seeded EngineAdapter clients (matching the IDs/secrets the
+            // adapter wires in seedClients()).
             String config = """
                     {
-                      "description": "M0 conformance smoke run",
+                      "description": "M2.RC1 conformance run with EngineAdapter",
                       "server": {
                         "discoveryUrl": "http://host.docker.internal:%d/.well-known/openid-configuration"
                       },
