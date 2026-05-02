@@ -13,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class JwksRendererTest {
 
@@ -40,5 +41,23 @@ class JwksRendererTest {
         assertThat(jwk.additionalParameters()).doesNotContainKey("d")
                                               .doesNotContainKey("p")
                                               .doesNotContainKey("q");
+    }
+
+    @Test
+    void unsupportedAlgorithmThrows() throws Exception {
+        com.nimbusds.jose.jwk.ECKey ecJwk = new com.nimbusds.jose.jwk.gen.ECKeyGenerator(com.nimbusds.jose.jwk.Curve.P_256)
+                .keyID("ec-kid")
+                .generate();
+        SigningKey ecKey = new SigningKey(
+                "ec-kid",
+                SignatureAlgorithm.ES256,
+                new KeyMaterial(ecJwk.toECPrivateKey().getEncoded(), SignatureAlgorithm.ES256),
+                KeyState.ACTIVE,
+                Instant.parse("2026-01-01T00:00:00Z"),
+                Instant.parse("2027-01-01T00:00:00Z"));
+
+        assertThatThrownBy(() -> new JwksRenderer().render(ecKey))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("ES256");
     }
 }

@@ -44,5 +44,11 @@
             <artifactId>archunit-junit5</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>com.google.crypto.tink</groupId>
+            <artifactId>tink</artifactId>
+            <version>1.15.0</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>
