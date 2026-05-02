@@ -41,6 +41,11 @@
             <artifactId>tokido-core-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>net.jqwik</groupId>
+            <artifactId>jqwik</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!--
             NOTE: identity-engine MUST NOT depend on identity-jwt at any scope
             (identity-jwt depends on identity-engine for the TokenSigner SPI;
