@@ -25,22 +25,35 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Drives the OIDC {@code /authorize} endpoint, happy-path only at Task 16.
+ * Drives the OIDC {@code /authorize} endpoint.
  *
- * <p>Validation gates that fail (unknown client, bad redirect URI, unsupported
- * scope, missing PKCE, missing login, missing consent) currently throw
- * {@link IllegalStateException} with a message tagging the gate; Task 17
- * replaces those with proper {@link AuthorizeResult.Error} /
- * {@link AuthorizeResult.LoginRequired} / {@link AuthorizeResult.ConsentRequired}
- * variants.
+ * <p>Returns one of the {@link AuthorizeResult} variants depending on which
+ * validation gate fails (or succeeds):
+ * <ul>
+ *   <li>{@link AuthorizeResult.Redirect} for the happy path — carries
+ *       {@code code} (and optionally {@code state}, {@code iss}) in its
+ *       params map, plus a constructed redirect URI of the form
+ *       {@code redirect_uri?code=...&state=...&iss=...}. The persisted
+ *       artefact is a {@link PersistedGrant} of type
+ *       {@link GrantType#AUTHORIZATION_CODE} whose {@code data} field is
+ *       the JSON serialization of an {@link AuthorizationCodeData}.</li>
+ *   <li>{@link AuthorizeResult.Error} with code {@code invalid_client},
+ *       {@code invalid_request}, {@code invalid_scope}, or
+ *       {@code unsupported_response_type}.</li>
+ *   <li>{@link AuthorizeResult.LoginRequired} when the session is
+ *       anonymous.</li>
+ *   <li>{@link AuthorizeResult.ConsentRequired} when stored consent is
+ *       missing or doesn't cover all requested scopes.</li>
+ * </ul>
  *
- * <p>Happy-path output: a {@link AuthorizeResult.Redirect} carrying
- * {@code code} (and optionally {@code state}, {@code iss}) in its params map,
- * plus a constructed redirect URI of the form
- * {@code redirect_uri?code=...&state=...&iss=...}. The persisted artefact is
- * a {@link PersistedGrant} of type {@link GrantType#AUTHORIZATION_CODE} whose
- * {@code data} field is the JSON serialization of an
- * {@link AuthorizationCodeData}.
+ * <p>Per RFC 6749 §4.1.2.1, when {@code redirect_uri} fails validation the
+ * authorization server must NOT redirect to the supplied URI and must NOT
+ * echo {@code state} back. The {@code Error} returned for that branch carries
+ * {@code state == null}; the framework adapter is expected to render the
+ * error directly (e.g., as a 400 page) instead of redirecting. Errors that
+ * happen after {@code redirect_uri} is validated do echo {@code state} so
+ * the adapter can attach it to the redirect response. {@code MfaRequired} is
+ * deferred to M4.
  */
 @API(status = API.Status.INTERNAL, since = "0.1.0-M2")
 public final class AuthorizeHandler {
@@ -75,12 +88,12 @@ public final class AuthorizeHandler {
     }
 
     /**
-     * Run the happy-path authorize flow.
+     * Run the authorize flow.
      *
      * @param req   incoming request
      * @param state browser-session auth state
-     * @return a {@link AuthorizeResult.Redirect} carrying the issued code
-     * @throws IllegalStateException for any branch the plan defers to Task 17
+     * @return one of the {@link AuthorizeResult} variants — see the class
+     *         javadoc for the mapping from gate to variant
      */
     public AuthorizeResult handle(AuthorizeRequest req, AuthenticationState state) {
         Objects.requireNonNull(req, "req");
@@ -88,13 +101,23 @@ public final class AuthorizeHandler {
 
         // 1. Resolve client.
         Client client = clientStore.findById(req.clientId());
-        if (client == null || !client.enabled()) {
-            throw new IllegalStateException("invalid_client (handled in task 17)");
+        if (client == null) {
+            return new AuthorizeResult.Error(
+                    "invalid_client", "unknown client: " + req.clientId(), req.state());
+        }
+        if (!client.enabled()) {
+            return new AuthorizeResult.Error(
+                    "invalid_client", "client is disabled", req.state());
         }
 
         // 2. Validate redirect URI.
+        // Per RFC 6749 §4.1.2.1, a redirect_uri mismatch must NOT redirect to
+        // the supplied URI and must NOT echo `state`. We pass null for state.
         if (!RedirectUriMatcher.matches(req.redirectUri(), client.redirectUris())) {
-            throw new IllegalStateException("invalid redirect_uri (handled in task 17)");
+            return new AuthorizeResult.Error(
+                    "invalid_request",
+                    "redirect_uri does not match a registered URI",
+                    null);
         }
 
         // 3. Filter scopes.
@@ -102,31 +125,36 @@ public final class AuthorizeHandler {
         try {
             scopes = ScopeFilter.filter(req.scopes(), client.allowedScopes());
         } catch (ScopeFilter.UnsupportedScopeException e) {
-            throw new IllegalStateException("invalid_scope (handled in task 17)", e);
+            return new AuthorizeResult.Error(
+                    "invalid_scope", "scope not allowed: " + e.scope(), req.state());
         }
-        // resourceStore is not consulted at Task 16 (Task 17/18 will filter
+        // resourceStore is not consulted at Task 17 (Task 18 will filter
         // identity scopes against ResourceStore). The dependency is still
         // injected so the upgrade lands without re-wiring.
 
         // 4. Validate response_type == "code".
         if (!"code".equals(req.responseType())) {
-            throw new IllegalStateException("unsupported_response_type (handled in task 17)");
+            return new AuthorizeResult.Error(
+                    "unsupported_response_type",
+                    "response_type must be \"code\"",
+                    req.state());
         }
 
         // 5. PKCE required?
         if (client.requirePkce() && (req.codeChallenge() == null || req.codeChallenge().isBlank())) {
-            throw new IllegalStateException("invalid_request: PKCE required (handled in task 17)");
+            return new AuthorizeResult.Error(
+                    "invalid_request", "code_challenge required", req.state());
         }
 
         // 6. Login required?
         if (state.subjectId() == null) {
-            throw new IllegalStateException("login_required (handled in task 17)");
+            return new AuthorizeResult.LoginRequired(null);
         }
 
         // 7. Consent required?
         Consent consent = consentStore.find(state.subjectId(), client.clientId());
         if (consent == null || !consent.scopes().containsAll(scopes)) {
-            throw new IllegalStateException("consent_required (handled in task 17)");
+            return new AuthorizeResult.ConsentRequired(scopes, req.state());
         }
 
         // 8. Generate code, build the data payload, persist.

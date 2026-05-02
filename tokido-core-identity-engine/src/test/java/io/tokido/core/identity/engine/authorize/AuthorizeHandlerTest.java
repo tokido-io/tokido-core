@@ -29,13 +29,13 @@ import java.util.Map;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Happy-path tests for {@link AuthorizeHandler}. Error/login/consent branches
- * land in Task 17. Stubs are inline anonymous classes — no Map* fixtures —
- * matching the engine module's existing test style and keeping us off the
- * identity-jwt → engine reactor cycle.
+ * Tests for {@link AuthorizeHandler} covering the happy path plus every
+ * non-{@code MfaRequired} {@link AuthorizeResult} variant. Stubs are inline
+ * anonymous classes — no Map* fixtures — matching the engine module's
+ * existing test style and keeping us off the identity-jwt → engine reactor
+ * cycle.
  */
 class AuthorizeHandlerTest {
 
@@ -59,7 +59,7 @@ class AuthorizeHandlerTest {
         AuthorizeRequest req = sampleRequest(client, "xyz-state");
         AuthorizationCodeData expectedAuthState = sampleAuthState();
 
-        AuthorizeResult result = handler.handle(req, sampleSessionFor(client));
+        AuthorizeResult result = handler.handle(req, sampleSession());
 
         // Variant.
         assertThat(result).isInstanceOf(AuthorizeResult.Redirect.class);
@@ -122,7 +122,7 @@ class AuthorizeHandlerTest {
                 /* codeChallengeMethod */ "S256",
                 null, Set.of(), null, null, null, null, Map.of());
 
-        AuthorizeResult.Redirect redirect = (AuthorizeResult.Redirect) handler.handle(req, sampleSessionFor(client));
+        AuthorizeResult.Redirect redirect = (AuthorizeResult.Redirect) handler.handle(req, sampleSession());
 
         assertThat(redirect.params()).doesNotContainKey("state");
         assertThat(redirect.params()).containsKey("code");
@@ -141,7 +141,7 @@ class AuthorizeHandlerTest {
                 tokens);
 
         AuthorizeResult.Redirect redirect = (AuthorizeResult.Redirect) handler.handle(
-                sampleRequest(client, "s"), sampleSessionFor(client));
+                sampleRequest(client, "s"), sampleSession());
 
         String code = redirect.params().get("code");
         // 32 bytes Base64url no-padding => 43 chars from {A-Z,a-z,0-9,-,_}.
@@ -177,116 +177,177 @@ class AuthorizeHandlerTest {
                 "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", "S256",
                 null, Set.of(), null, null, null, null, Map.of());
 
-        AuthorizeResult.Redirect r = (AuthorizeResult.Redirect) handler.handle(req, sampleSessionFor(client));
+        AuthorizeResult.Redirect r = (AuthorizeResult.Redirect) handler.handle(req, sampleSession());
         // Expect "?foo=bar&code=..." (i.e., one '?' total).
         long questionMarks = r.redirectUri().toString().chars().filter(ch -> ch == '?').count();
         assertThat(questionMarks).isEqualTo(1);
     }
 
     @Test
-    void deferredBranchesThrowIllegalStateForTask17() {
-        // Task 16 implements only the happy path; the validation gates each
-        // throw IllegalStateException so Task 17 has a single, easily-spotted
-        // place to swap in proper Error/LoginRequired/ConsentRequired variants.
+    void codeIsUniquePerInvocation() {
         Client client = sampleClient(true);
-        ClientStore unknownClient = new ClientStore() {
+        RecordingTokenStore tokens = new RecordingTokenStore();
+        AuthorizeHandler handler = new AuthorizeHandler(
+                ISSUER, FIXED_CLOCK,
+                clientStub(client),
+                consentStub(consentForAllScopes(client)),
+                noopResourceStore(),
+                tokens);
+
+        AuthorizeResult.Redirect r1 = (AuthorizeResult.Redirect) handler.handle(
+                sampleRequest(client, "s"), sampleSession());
+        AuthorizeResult.Redirect r2 = (AuthorizeResult.Redirect) handler.handle(
+                sampleRequest(client, "s"), sampleSession());
+
+        assertThat(r1.params().get("code")).isNotEqualTo(r2.params().get("code"));
+        assertThat(tokens.stored).hasSize(2);
+    }
+
+    // ---- Error / LoginRequired / ConsentRequired branches ----
+
+    @Test
+    void unknownClient_returnsInvalidClientError() {
+        Client client = sampleClient(true);
+        ClientStore unknown = new ClientStore() {
             @Override public Client findById(String id) { return null; }
             @Override public boolean exists(String id) { return false; }
         };
-        AuthorizeHandler h1 = new AuthorizeHandler(
-                ISSUER, FIXED_CLOCK, unknownClient,
-                consentStub(consentForAllScopes(client)), noopResourceStore(), new RecordingTokenStore());
-        assertThatThrownBy(() -> h1.handle(sampleRequest(client, "s"), sampleSessionFor(client)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("invalid_client");
+        AuthorizeHandler handler = new AuthorizeHandler(
+                ISSUER, FIXED_CLOCK, unknown,
+                consentStub(consentForAllScopes(client)),
+                noopResourceStore(), new RecordingTokenStore());
 
-        Client disabled = new Client(client.clientId(), client.secrets(), client.redirectUris(),
-                client.postLogoutRedirectUris(), client.allowedScopes(), client.allowedGrantTypes(),
-                client.tokenEndpointAuthMethods(), client.requirePkce(), client.allowOfflineAccess(),
-                client.accessTokenLifetime(), client.refreshTokenLifetime(), client.refreshTokenUsage(),
-                client.claims(), /* enabled */ false);
-        AuthorizeHandler h2 = new AuthorizeHandler(
-                ISSUER, FIXED_CLOCK, clientStub(disabled),
-                consentStub(consentForAllScopes(client)), noopResourceStore(), new RecordingTokenStore());
-        assertThatThrownBy(() -> h2.handle(sampleRequest(disabled, "s"), sampleSessionFor(client)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("invalid_client");
+        AuthorizeResult result = handler.handle(sampleRequest(client, "xyz"), sampleSession());
 
-        // Bad redirect URI.
-        AuthorizeRequest badRedirect = new AuthorizeRequest(
-                client.clientId(), "code", "https://evil.example/cb",
-                Set.of("openid"), "s", null,
-                "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", "S256",
-                null, Set.of(), null, null, null, null, Map.of());
-        AuthorizeHandler h3 = new AuthorizeHandler(
-                ISSUER, FIXED_CLOCK, clientStub(client),
-                consentStub(consentForAllScopes(client)), noopResourceStore(), new RecordingTokenStore());
-        assertThatThrownBy(() -> h3.handle(badRedirect, sampleSessionFor(client)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("redirect_uri");
-
-        // Disallowed scope.
-        AuthorizeRequest badScope = new AuthorizeRequest(
-                client.clientId(), "code", "https://app.example/cb",
-                Set.of("openid", "admin"), "s", null,
-                "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", "S256",
-                null, Set.of(), null, null, null, null, Map.of());
-        assertThatThrownBy(() -> h3.handle(badScope, sampleSessionFor(client)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("invalid_scope");
-
-        // Wrong response_type.
-        AuthorizeRequest badResponseType = new AuthorizeRequest(
-                client.clientId(), "token", "https://app.example/cb",
-                Set.of("openid"), "s", null,
-                "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", "S256",
-                null, Set.of(), null, null, null, null, Map.of());
-        assertThatThrownBy(() -> h3.handle(badResponseType, sampleSessionFor(client)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("unsupported_response_type");
-
-        // PKCE required but missing.
-        AuthorizeRequest noPkce = new AuthorizeRequest(
-                client.clientId(), "code", "https://app.example/cb",
-                Set.of("openid"), "s", null,
-                /* codeChallenge */ null, null,
-                null, Set.of(), null, null, null, null, Map.of());
-        assertThatThrownBy(() -> h3.handle(noPkce, sampleSessionFor(client)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("PKCE");
-
-        // Anonymous session → login_required deferred branch.
-        assertThatThrownBy(() -> h3.handle(sampleRequest(client, "s"), AuthenticationState.anonymous()))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("login_required");
-
-        // Authenticated but no consent.
-        ConsentStore noConsent = new ConsentStore() {
-            @Override public Consent find(String s, String c) { return null; }
-            @Override public void store(Consent c) { throw new UnsupportedOperationException(); }
-            @Override public void remove(String s, String c) { throw new UnsupportedOperationException(); }
-        };
-        AuthorizeHandler h4 = new AuthorizeHandler(
-                ISSUER, FIXED_CLOCK, clientStub(client),
-                noConsent, noopResourceStore(), new RecordingTokenStore());
-        assertThatThrownBy(() -> h4.handle(sampleRequest(client, "s"), sampleSessionFor(client)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("consent_required");
-
-        // Consent present but does not cover requested scopes.
-        Consent partial = new Consent("user-123", client.clientId(),
-                Set.of("openid"), Instant.parse("2027-01-01T00:00:00Z"));
-        AuthorizeHandler h5 = new AuthorizeHandler(
-                ISSUER, FIXED_CLOCK, clientStub(client),
-                consentStub(partial), noopResourceStore(), new RecordingTokenStore());
-        assertThatThrownBy(() -> h5.handle(sampleRequest(client, "s"), sampleSessionFor(client)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("consent_required");
+        assertThat(result).isInstanceOf(AuthorizeResult.Error.class);
+        AuthorizeResult.Error err = (AuthorizeResult.Error) result;
+        assertThat(err.code()).isEqualTo("invalid_client");
+        assertThat(err.description()).contains(client.clientId());
+        assertThat(err.state()).isEqualTo("xyz");
     }
 
     @Test
-    void clientWithoutPkceRequirementSkipsPkceGate() {
-        // PKCE-not-required client + no code_challenge → still happy-path.
+    void disabledClient_returnsInvalidClientError() {
+        Client enabled = sampleClient(true);
+        Client disabled = new Client(
+                enabled.clientId(), enabled.secrets(), enabled.redirectUris(),
+                enabled.postLogoutRedirectUris(), enabled.allowedScopes(), enabled.allowedGrantTypes(),
+                enabled.tokenEndpointAuthMethods(), enabled.requirePkce(), enabled.allowOfflineAccess(),
+                enabled.accessTokenLifetime(), enabled.refreshTokenLifetime(), enabled.refreshTokenUsage(),
+                enabled.claims(), /* enabled */ false);
+        AuthorizeHandler handler = new AuthorizeHandler(
+                ISSUER, FIXED_CLOCK, clientStub(disabled),
+                consentStub(consentForAllScopes(disabled)),
+                noopResourceStore(), new RecordingTokenStore());
+
+        AuthorizeResult result = handler.handle(sampleRequest(disabled, "xyz"), sampleSession());
+
+        assertThat(result).isInstanceOf(AuthorizeResult.Error.class);
+        AuthorizeResult.Error err = (AuthorizeResult.Error) result;
+        assertThat(err.code()).isEqualTo("invalid_client");
+        assertThat(err.description()).isNotBlank();
+        assertThat(err.state()).isEqualTo("xyz");
+    }
+
+    @Test
+    void mismatchedRedirectUri_returnsInvalidRequestErrorWithoutEchoingState() {
+        // RFC 6749 §4.1.2.1: redirect_uri mismatch MUST NOT redirect AND MUST
+        // NOT echo state. The Error returned for this branch must carry
+        // state == null so the adapter renders a 400 page rather than redirecting.
+        Client client = sampleClient(true);
+        AuthorizeHandler handler = new AuthorizeHandler(
+                ISSUER, FIXED_CLOCK, clientStub(client),
+                consentStub(consentForAllScopes(client)),
+                noopResourceStore(), new RecordingTokenStore());
+
+        AuthorizeRequest badRedirect = new AuthorizeRequest(
+                client.clientId(), "code", "https://evil.example/cb",
+                Set.of("openid"), "xyz-state", null,
+                "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", "S256",
+                null, Set.of(), null, null, null, null, Map.of());
+
+        AuthorizeResult result = handler.handle(badRedirect, sampleSession());
+
+        assertThat(result).isInstanceOf(AuthorizeResult.Error.class);
+        AuthorizeResult.Error err = (AuthorizeResult.Error) result;
+        assertThat(err.code()).isEqualTo("invalid_request");
+        assertThat(err.description()).containsIgnoringCase("redirect_uri");
+        // Critical: state is NOT echoed.
+        assertThat(err.state()).isNull();
+    }
+
+    @Test
+    void unsupportedResponseType_returnsErrorWithEchoedState() {
+        Client client = sampleClient(true);
+        AuthorizeHandler handler = new AuthorizeHandler(
+                ISSUER, FIXED_CLOCK, clientStub(client),
+                consentStub(consentForAllScopes(client)),
+                noopResourceStore(), new RecordingTokenStore());
+
+        AuthorizeRequest badResponseType = new AuthorizeRequest(
+                client.clientId(), "token", "https://app.example/cb",
+                Set.of("openid"), "xyz-state", null,
+                "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", "S256",
+                null, Set.of(), null, null, null, null, Map.of());
+
+        AuthorizeResult result = handler.handle(badResponseType, sampleSession());
+
+        assertThat(result).isInstanceOf(AuthorizeResult.Error.class);
+        AuthorizeResult.Error err = (AuthorizeResult.Error) result;
+        assertThat(err.code()).isEqualTo("unsupported_response_type");
+        assertThat(err.state()).isEqualTo("xyz-state");
+    }
+
+    @Test
+    void disallowedScope_returnsInvalidScopeErrorWithOffendingScopeName() {
+        Client client = sampleClient(true);
+        AuthorizeHandler handler = new AuthorizeHandler(
+                ISSUER, FIXED_CLOCK, clientStub(client),
+                consentStub(consentForAllScopes(client)),
+                noopResourceStore(), new RecordingTokenStore());
+
+        AuthorizeRequest badScope = new AuthorizeRequest(
+                client.clientId(), "code", "https://app.example/cb",
+                Set.of("openid", "admin"), "xyz-state", null,
+                "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", "S256",
+                null, Set.of(), null, null, null, null, Map.of());
+
+        AuthorizeResult result = handler.handle(badScope, sampleSession());
+
+        assertThat(result).isInstanceOf(AuthorizeResult.Error.class);
+        AuthorizeResult.Error err = (AuthorizeResult.Error) result;
+        assertThat(err.code()).isEqualTo("invalid_scope");
+        assertThat(err.description()).contains("admin");
+        assertThat(err.state()).isEqualTo("xyz-state");
+    }
+
+    @Test
+    void missingPkce_whenClientRequiresPkce_returnsInvalidRequestError() {
+        Client client = sampleClient(true); // requirePkce = true
+        AuthorizeHandler handler = new AuthorizeHandler(
+                ISSUER, FIXED_CLOCK, clientStub(client),
+                consentStub(consentForAllScopes(client)),
+                noopResourceStore(), new RecordingTokenStore());
+
+        AuthorizeRequest noPkce = new AuthorizeRequest(
+                client.clientId(), "code", "https://app.example/cb",
+                Set.of("openid"), "xyz-state", null,
+                /* codeChallenge */ null, null,
+                null, Set.of(), null, null, null, null, Map.of());
+
+        AuthorizeResult result = handler.handle(noPkce, sampleSession());
+
+        assertThat(result).isInstanceOf(AuthorizeResult.Error.class);
+        AuthorizeResult.Error err = (AuthorizeResult.Error) result;
+        assertThat(err.code()).isEqualTo("invalid_request");
+        assertThat(err.description()).containsIgnoringCase("code_challenge");
+        assertThat(err.state()).isEqualTo("xyz-state");
+    }
+
+    @Test
+    void pkceNotRequired_andMissing_proceedsToHappyPath() {
+        // Negative of branch 5: when client.requirePkce is false, missing
+        // code_challenge must NOT produce an error.
         Client client = new Client(
                 "client-1", Set.of(),
                 Set.of("https://app.example/cb"),
@@ -311,28 +372,60 @@ class AuthorizeHandlerTest {
                 /* codeChallenge */ null, null,
                 null, Set.of(), null, null, null, null, Map.of());
 
-        AuthorizeResult result = handler.handle(req, sampleSessionFor(client));
+        AuthorizeResult result = handler.handle(req, sampleSession());
         assertThat(result).isInstanceOf(AuthorizeResult.Redirect.class);
     }
 
     @Test
-    void codeIsUniquePerInvocation() {
+    void anonymousSession_returnsLoginRequired() {
         Client client = sampleClient(true);
-        RecordingTokenStore tokens = new RecordingTokenStore();
         AuthorizeHandler handler = new AuthorizeHandler(
-                ISSUER, FIXED_CLOCK,
-                clientStub(client),
+                ISSUER, FIXED_CLOCK, clientStub(client),
                 consentStub(consentForAllScopes(client)),
-                noopResourceStore(),
-                tokens);
+                noopResourceStore(), new RecordingTokenStore());
 
-        AuthorizeResult.Redirect r1 = (AuthorizeResult.Redirect) handler.handle(
-                sampleRequest(client, "s"), sampleSessionFor(client));
-        AuthorizeResult.Redirect r2 = (AuthorizeResult.Redirect) handler.handle(
-                sampleRequest(client, "s"), sampleSessionFor(client));
+        AuthorizeResult result = handler.handle(sampleRequest(client, "s"), AuthenticationState.anonymous());
 
-        assertThat(r1.params().get("code")).isNotEqualTo(r2.params().get("code"));
-        assertThat(tokens.stored).hasSize(2);
+        assertThat(result).isInstanceOf(AuthorizeResult.LoginRequired.class);
+        AuthorizeResult.LoginRequired lr = (AuthorizeResult.LoginRequired) result;
+        assertThat(lr.reason()).isNull();
+    }
+
+    @Test
+    void noPriorConsent_returnsConsentRequired() {
+        Client client = sampleClient(true);
+        ConsentStore noConsent = new ConsentStore() {
+            @Override public Consent find(String s, String c) { return null; }
+            @Override public void store(Consent c) { throw new UnsupportedOperationException(); }
+            @Override public void remove(String s, String c) { throw new UnsupportedOperationException(); }
+        };
+        AuthorizeHandler handler = new AuthorizeHandler(
+                ISSUER, FIXED_CLOCK, clientStub(client),
+                noConsent, noopResourceStore(), new RecordingTokenStore());
+
+        AuthorizeResult result = handler.handle(sampleRequest(client, "xyz-state"), sampleSession());
+
+        assertThat(result).isInstanceOf(AuthorizeResult.ConsentRequired.class);
+        AuthorizeResult.ConsentRequired cr = (AuthorizeResult.ConsentRequired) result;
+        assertThat(cr.requestedScopes()).containsExactlyInAnyOrder("openid", "profile");
+        assertThat(cr.state()).isEqualTo("xyz-state");
+    }
+
+    @Test
+    void partialConsent_returnsConsentRequired() {
+        Client client = sampleClient(true);
+        Consent partial = new Consent("user-123", client.clientId(),
+                Set.of("openid"), Instant.parse("2027-01-01T00:00:00Z"));
+        AuthorizeHandler handler = new AuthorizeHandler(
+                ISSUER, FIXED_CLOCK, clientStub(client),
+                consentStub(partial), noopResourceStore(), new RecordingTokenStore());
+
+        AuthorizeResult result = handler.handle(sampleRequest(client, "xyz-state"), sampleSession());
+
+        assertThat(result).isInstanceOf(AuthorizeResult.ConsentRequired.class);
+        AuthorizeResult.ConsentRequired cr = (AuthorizeResult.ConsentRequired) result;
+        assertThat(cr.requestedScopes()).containsExactlyInAnyOrder("openid", "profile");
+        assertThat(cr.state()).isEqualTo("xyz-state");
     }
 
     // ---- helpers ----
@@ -371,7 +464,7 @@ class AuthorizeHandlerTest {
     }
 
     /** AuthenticationState that establishes a logged-in user. */
-    private static AuthenticationState sampleSessionFor(Client client) {
+    private static AuthenticationState sampleSession() {
         return new AuthenticationState(
                 "user-123",
                 Instant.parse("2026-05-02T11:55:00Z"),
@@ -420,7 +513,7 @@ class AuthorizeHandlerTest {
     }
 
     private static ResourceStore noopResourceStore() {
-        // Task 16 happy path does not consult the resource store; every method UoEs
+        // Task 17 happy path does not consult the resource store; every method UoEs
         // so we will catch any accidental call in a future task.
         return new ResourceStore() {
             @Override public IdentityScope findIdentityScope(String n) { throw new UnsupportedOperationException(); }
