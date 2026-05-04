@@ -67,11 +67,15 @@ class OidcConformanceIT {
     // (MongoDB index creation + extensive class scanning).  CI machines are often
     // slower.  10 min provides a generous margin.
     private static final Duration BOOT_TIMEOUT = Duration.ofMinutes(10);
-    // M2.RC1 timeout: real engine flows (authorize → token → userinfo, with PKCE
-    // verification and JWS signing on each call) take noticeably longer than the
-    // M0/M1 stub which 501'd instantly. 5 minutes per module is comfortable for
-    // the OIDF basic-cert plan modules; bump if a particular module times out.
-    private static final Duration MODULE_TIMEOUT = Duration.ofMinutes(5);
+    // M2.RC1: per-module timeout is intentionally short. In unattended mode
+    // (no Selenium / Playwright driver) OIDF tests progress through their
+    // setup phase, then stall waiting for a "browser" to drive the redirect
+    // chain. The suite's own per-test timeout is 5 min; setting ours to 30s
+    // means the IT terminates within ~17 minutes worst-case (35 × 30s) rather
+    // than 175 minutes. Each module that *does* run will finish in well
+    // under 30s on real engine flows. Restore to 5+ minutes once the suite
+    // has a browser-driver attached (M2.RC2).
+    private static final Duration MODULE_TIMEOUT = Duration.ofSeconds(30);
     private static final Path COMPOSE_FILE =
             Path.of("src/test/resources/docker-compose.yml");
     private static final Path RESULTS_FILE = Path.of("target/conformance-results.json");
@@ -146,8 +150,14 @@ class OidcConformanceIT {
             // The plan requires two variants (see PLAN_VARIANT) and the
             // pre-seeded EngineAdapter clients (matching the IDs/secrets the
             // adapter wires in seedClients()).
+            // alias = "tokido" pins the suite-generated callback URL to
+            // {base}/test/a/tokido/callback, which the EngineAdapter's seeded
+            // clients pre-register. Without this, the suite generates a random
+            // alias and our exact-match redirect_uri check rejects the
+            // resulting callback URL — every test then hangs at /authorize.
             String config = """
                     {
+                      "alias": "tokido",
                       "description": "M2.RC1 conformance run with EngineAdapter",
                       "server": {
                         "discoveryUrl": "http://host.docker.internal:%d/.well-known/openid-configuration"
@@ -183,10 +193,18 @@ class OidcConformanceIT {
             // Terminal status values: FINISHED, INTERRUPTED
             // result values: PASSED, FAILED, WARNING, REVIEW, SKIPPED, UNKNOWN
             total = testIds.size();
+            boolean firstFailureLogged = false;
             for (String testId : testIds) {
                 String result = pollUntilFinished(testId, MODULE_TIMEOUT);
                 if ("PASSED".equals(result)) {
                     passed++;
+                } else if (!firstFailureLogged) {
+                    // Dump the suite's structured log for the first failure so
+                    // we have ground-truth on why our SUT is failing OIDF
+                    // validation. Subsequent failures usually share the same
+                    // root cause; one dump is plenty for diagnosis.
+                    dumpTestLog(testId);
+                    firstFailureLogged = true;
                 }
             }
         } finally {
@@ -200,6 +218,23 @@ class OidcConformanceIT {
         assertTrue(passed >= floor,
                 "OIDF pass-count " + passed + "/" + total
                         + " is below milestone floor " + floor);
+    }
+
+    /**
+     * Print the suite's structured log for {@code testId} to {@code System.err}.
+     * Best-effort: any failure here is logged but does not propagate, since
+     * the diagnostic should never mask the underlying test failure.
+     */
+    private static void dumpTestLog(String testId) {
+        try {
+            HttpResponse<String> response = send(
+                    HttpRequest.newBuilder(SUITE_BASE.resolve("/api/log/" + testId))
+                            .GET());
+            System.err.println("[oidf-log] " + testId + " (status=" + response.statusCode() + "):");
+            System.err.println(response.body());
+        } catch (Exception e) {
+            System.err.println("[oidf-log] dump failed for " + testId + ": " + e.getMessage());
+        }
     }
 
     private static void writeResultsFile(long passed, long total) {
@@ -284,6 +319,14 @@ class OidcConformanceIT {
      *
      * <p>Confirmed API: {@code POST /api/runner?test=&lt;module&gt;&plan=&lt;planId&gt;}
      * returns 201 {@code {"id":"...","name":"...","url":"...",...}}.
+     *
+     * <p>OIDF tests progress through their setup phase (discovery, JWKS
+     * fetch, request build) automatically once created — no external "start
+     * signal" is needed. After setup the test is "redirecting" the simulated
+     * browser to the SUT's authorize endpoint. Driving the redirect chain
+     * onward requires a real browser-driver (Selenium / Playwright); in
+     * unattended mode tests stall here and the suite eventually marks them
+     * INTERRUPTED. Adding a Selenium runner is M2.RC2 work.
      */
     private static String createTestInstance(String planId, String moduleName) throws Exception {
         String url = SUITE_BASE
@@ -305,9 +348,15 @@ class OidcConformanceIT {
     /**
      * Polls {@code GET /api/info/{testId}} until the test reaches a terminal state
      * ({@code FINISHED} or {@code INTERRUPTED}), then returns the {@code result} value.
+     *
+     * <p>Each status transition is logged to {@code System.err}; on timeout the
+     * last-seen status + result are included in the failure message to make
+     * stuck-test debugging tractable without re-running the suite.
      */
     private static String pollUntilFinished(String testId, Duration timeout) throws Exception {
         Instant deadline = Instant.now().plus(timeout);
+        String lastStatus = "";
+        String lastResult = "";
         while (Instant.now().isBefore(deadline)) {
             try {
                 HttpResponse<String> response = send(
@@ -315,8 +364,14 @@ class OidcConformanceIT {
                                 .GET());
                 String body = response.body();
                 String status = JsonScrape.extractStringFieldOrEmpty(body, "status");
+                String result = JsonScrape.extractStringFieldOrEmpty(body, "result");
+                if (!status.equals(lastStatus) || !result.equals(lastResult)) {
+                    System.err.println("[oidf] " + testId + " status=" + status + " result=" + result);
+                    lastStatus = status;
+                    lastResult = result;
+                }
                 if ("FINISHED".equals(status) || "INTERRUPTED".equals(status)) {
-                    return JsonScrape.extractStringFieldOrEmpty(body, "result");
+                    return result;
                 }
             } catch (Exception e) {
                 // Transient error — keep polling, but log so persistent failures surface in CI logs.
@@ -325,7 +380,8 @@ class OidcConformanceIT {
             Thread.sleep(3_000);
         }
         throw new IllegalStateException(
-                "test " + testId + " did not finish within " + timeout);
+                "test " + testId + " did not finish within " + timeout
+                        + " (last status=" + lastStatus + " result=" + lastResult + ")");
     }
 
     /**

@@ -93,6 +93,15 @@ final class EngineAdapter {
 
     private static final SecureRandom RNG = new SecureRandom();
 
+    /**
+     * Diagnostic flag for OIDF debugging. When {@code tokido.conformance.debug}
+     * is set the adapter prints one line to {@code System.err} per inbound
+     * request and per outbound response, with method, path, decoded query
+     * string, and the response status. Off by default to keep test output
+     * clean.
+     */
+    private static final boolean DEBUG = Boolean.getBoolean("tokido.conformance.debug");
+
     /** Seed username for the auto-login shortcut. */
     static final String SEED_USERNAME = "alice";
     /** Seed password for the auto-login shortcut. */
@@ -608,9 +617,14 @@ final class EngineAdapter {
                 // OIDF certification suite (production callbacks)
                 "https://www.certification.openid.net/test/a/tokido/callback",
                 "https://www.certification.openid.net/test/a/tokido/callback/implicit",
-                // OIDF suite running locally (docker-compose)
-                "http://localhost:8080/test/a/tokido/callback",
-                "http://localhost:8080/test/a/tokido/callback/implicit",
+                // OIDF suite running locally (docker-compose). The suite
+                // advertises HTTPS:8443 callbacks even when its actual server
+                // is plain HTTP/8080 — the URL is a label captured from a
+                // 302 Location header, not an HTTP target the SUT fetches.
+                "https://localhost:8443/test/a/tokido/callback",
+                "https://localhost:8443/test/a/tokido/callback/implicit",
+                "https://localhost:8444/test-mtls/a/tokido/callback",
+                "https://localhost:8444/test-mtls/a/tokido/callback/implicit",
                 // Generic local-test callbacks for EngineAdapterTest
                 "http://localhost:9999/cb",
                 "https://app.example/cb");
@@ -692,11 +706,13 @@ final class EngineAdapter {
     }
 
     private static void sendStatus(HttpExchange exchange, int status) throws IOException {
+        debugReply(exchange, status);
         exchange.sendResponseHeaders(status, -1);
         exchange.close();
     }
 
     private static void sendText(HttpExchange exchange, int status, String body) throws IOException {
+        debugReply(exchange, status);
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "text/plain; charset=utf-8");
         exchange.sendResponseHeaders(status, bytes.length);
@@ -705,6 +721,7 @@ final class EngineAdapter {
     }
 
     private static void sendJson(HttpExchange exchange, int status, String body) throws IOException {
+        debugReply(exchange, status);
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "application/json");
         exchange.getResponseHeaders().add("Cache-Control", "no-store");
@@ -712,6 +729,26 @@ final class EngineAdapter {
         exchange.sendResponseHeaders(status, bytes.length);
         exchange.getResponseBody().write(bytes);
         exchange.close();
+    }
+
+    /**
+     * Print one line to {@code System.err} with method, path, query, and
+     * response status. Gated on {@link #DEBUG} so production runs stay quiet.
+     * Headers are summarised by name only (not values) to avoid leaking
+     * bearer tokens / Basic credentials into test logs.
+     */
+    private static void debugReply(HttpExchange exchange, int status) {
+        if (!DEBUG) return;
+        String method = exchange.getRequestMethod();
+        String path = exchange.getRequestURI().getPath();
+        String query = exchange.getRequestURI().getRawQuery();
+        String location = exchange.getResponseHeaders().getFirst("Location");
+        StringBuilder line = new StringBuilder(128)
+                .append("[engine-adapter] ").append(method).append(' ').append(path);
+        if (query != null) line.append('?').append(query);
+        line.append(" -> ").append(status);
+        if (location != null) line.append("  Location=").append(location);
+        System.err.println(line);
     }
 
     private static String errorJson(String code, String description) {
