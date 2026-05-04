@@ -94,9 +94,11 @@ final class IdTokenBuilder {
         }
 
         // 2. Build a (claim-name -> claim-value) map from the user's claims,
-        // filtered by the unlocked set. Insertion order is the user store's
-        // iteration order; if multiple values share the same type the last
-        // wins (sufficient for RC1 — multi-valued claims are M3).
+        // filtered by the unlocked set. UserStore.claims() returns a Set with
+        // unspecified iteration order, so when multiple UserClaim entries
+        // share the same type the surviving value is non-deterministic across
+        // runs. RC1 contract is single-valued claims (one value per type);
+        // multi-valued claims arrive at M3 and will need a different shape.
         Map<String, String> claimValues = new LinkedHashMap<>();
         if (!unlockedClaimNames.isEmpty()) {
             for (UserClaim claim : userStore.claims(subjectId)) {
