@@ -412,6 +412,86 @@ class AuthorizeHandlerTest {
     }
 
     @Test
+    void promptNone_withAnonymousSession_returnsLoginRequiredError() {
+        // OIDC Core §3.1.2.1: prompt=none + unauthenticated user → login_required
+        // error (not LoginRequired UI).
+        Client client = sampleClient(true);
+        AuthorizeHandler handler = new AuthorizeHandler(
+                ISSUER, FIXED_CLOCK, clientStub(client),
+                consentStub(consentForAllScopes(client)),
+                noopResourceStore(), new RecordingTokenStore());
+
+        AuthorizeResult result = handler.handle(
+                sampleRequestWithPrompt(client, "xyz", "none"),
+                AuthenticationState.anonymous());
+
+        assertThat(result).isInstanceOf(AuthorizeResult.Error.class);
+        AuthorizeResult.Error err = (AuthorizeResult.Error) result;
+        assertThat(err.code()).isEqualTo("login_required");
+        assertThat(err.state()).isEqualTo("xyz");
+    }
+
+    @Test
+    void promptNone_withSessionButNoConsent_returnsConsentRequiredError() {
+        // OIDC Core §3.1.2.1: prompt=none + missing consent → consent_required
+        // error (not ConsentRequired UI).
+        Client client = sampleClient(true);
+        ConsentStore noConsent = new ConsentStore() {
+            @Override public Consent find(String s, String c) { return null; }
+            @Override public void store(Consent c) { throw new UnsupportedOperationException(); }
+            @Override public void remove(String s, String c) { throw new UnsupportedOperationException(); }
+        };
+        AuthorizeHandler handler = new AuthorizeHandler(
+                ISSUER, FIXED_CLOCK, clientStub(client),
+                noConsent, noopResourceStore(), new RecordingTokenStore());
+
+        AuthorizeResult result = handler.handle(
+                sampleRequestWithPrompt(client, "xyz", "none"),
+                sampleSession());
+
+        assertThat(result).isInstanceOf(AuthorizeResult.Error.class);
+        AuthorizeResult.Error err = (AuthorizeResult.Error) result;
+        assertThat(err.code()).isEqualTo("consent_required");
+        assertThat(err.state()).isEqualTo("xyz");
+    }
+
+    @Test
+    void promptNone_withSessionAndConsent_proceedsToRedirect() {
+        // prompt=none is allowed when the user is already authenticated AND
+        // has consented — the flow proceeds silently.
+        Client client = sampleClient(true);
+        AuthorizeHandler handler = new AuthorizeHandler(
+                ISSUER, FIXED_CLOCK, clientStub(client),
+                consentStub(consentForAllScopes(client)),
+                noopResourceStore(), new RecordingTokenStore());
+
+        AuthorizeResult result = handler.handle(
+                sampleRequestWithPrompt(client, "xyz", "none"),
+                sampleSession());
+
+        assertThat(result).isInstanceOf(AuthorizeResult.Redirect.class);
+    }
+
+    @Test
+    void promptListContainingNone_isRecognised() {
+        // OIDC allows space-separated prompts; "login none" is recognised
+        // even though it's a contradictory combination — we treat any
+        // occurrence of "none" as a request to error rather than UI.
+        Client client = sampleClient(true);
+        AuthorizeHandler handler = new AuthorizeHandler(
+                ISSUER, FIXED_CLOCK, clientStub(client),
+                consentStub(consentForAllScopes(client)),
+                noopResourceStore(), new RecordingTokenStore());
+
+        AuthorizeResult result = handler.handle(
+                sampleRequestWithPrompt(client, "xyz", "login none"),
+                AuthenticationState.anonymous());
+
+        assertThat(result).isInstanceOf(AuthorizeResult.Error.class);
+        assertThat(((AuthorizeResult.Error) result).code()).isEqualTo("login_required");
+    }
+
+    @Test
     void partialConsent_returnsConsentRequired() {
         Client client = sampleClient(true);
         Consent partial = new Consent("user-123", client.clientId(),
@@ -449,6 +529,10 @@ class AuthorizeHandlerTest {
     }
 
     private static AuthorizeRequest sampleRequest(Client client, String state) {
+        return sampleRequestWithPrompt(client, state, null);
+    }
+
+    private static AuthorizeRequest sampleRequestWithPrompt(Client client, String state, String prompt) {
         return new AuthorizeRequest(
                 client.clientId(),
                 "code",
@@ -460,7 +544,7 @@ class AuthorizeHandlerTest {
                 "S256",
                 null,
                 Set.of(),
-                null, null, null, null, Map.of());
+                null, prompt, null, null, Map.of());
     }
 
     /** AuthenticationState that establishes a logged-in user. */

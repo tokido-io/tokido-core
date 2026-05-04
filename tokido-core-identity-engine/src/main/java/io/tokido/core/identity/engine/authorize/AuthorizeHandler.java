@@ -38,12 +38,15 @@ import java.util.Set;
  *       {@link GrantType#AUTHORIZATION_CODE} whose {@code data} field is
  *       the JSON serialization of an {@link AuthorizationCodeData}.</li>
  *   <li>{@link AuthorizeResult.Error} with code {@code invalid_client},
- *       {@code invalid_request}, {@code invalid_scope}, or
- *       {@code unsupported_response_type}.</li>
+ *       {@code invalid_request}, {@code invalid_scope},
+ *       {@code unsupported_response_type}, or — when {@code prompt=none} is
+ *       set and the end-user cannot proceed silently — {@code login_required}
+ *       / {@code consent_required} per OIDC Core §3.1.2.1.</li>
  *   <li>{@link AuthorizeResult.LoginRequired} when the session is
- *       anonymous.</li>
+ *       anonymous and {@code prompt=none} was not requested.</li>
  *   <li>{@link AuthorizeResult.ConsentRequired} when stored consent is
- *       missing or doesn't cover all requested scopes.</li>
+ *       missing or doesn't cover all requested scopes and {@code prompt=none}
+ *       was not requested.</li>
  * </ul>
  *
  * <p>Per RFC 6749 §4.1.2.1, when {@code redirect_uri} fails validation the
@@ -146,14 +149,30 @@ public final class AuthorizeHandler {
                     "invalid_request", "code_challenge required", req.state());
         }
 
-        // 6. Login required?
+        // 6. Login required? Per OIDC Core §3.1.2.1, prompt=none mandates an
+        // error rather than a login UI when the end-user is not authenticated.
+        boolean promptNone = promptContains(req.prompt(), "none");
         if (state.subjectId() == null) {
+            if (promptNone) {
+                return new AuthorizeResult.Error(
+                        "login_required",
+                        "prompt=none but end-user is not authenticated",
+                        req.state());
+            }
             return new AuthorizeResult.LoginRequired(null);
         }
 
-        // 7. Consent required?
+        // 7. Consent required? Per OIDC Core §3.1.2.1, prompt=none also turns
+        // a missing/insufficient consent into a consent_required error
+        // instead of a consent UI.
         Consent consent = consentStore.find(state.subjectId(), client.clientId());
         if (consent == null || !consent.scopes().containsAll(scopes)) {
+            if (promptNone) {
+                return new AuthorizeResult.Error(
+                        "consent_required",
+                        "prompt=none but end-user has not consented to all scopes",
+                        req.state());
+            }
             return new AuthorizeResult.ConsentRequired(scopes, req.state());
         }
 
@@ -189,6 +208,18 @@ public final class AuthorizeHandler {
         params.put("iss", issuer.toString());
         URI redirect = appendQuery(req.redirectUri(), params);
         return new AuthorizeResult.Redirect(redirect, params);
+    }
+
+    /**
+     * Test whether {@code prompt} (an OIDC space-separated prompt list) contains
+     * {@code value}. Null/blank prompt is treated as the empty list.
+     */
+    private static boolean promptContains(String prompt, String value) {
+        if (prompt == null || prompt.isBlank()) return false;
+        for (String token : prompt.trim().split("\\s+")) {
+            if (token.equals(value)) return true;
+        }
+        return false;
     }
 
     /** 32 bytes of {@link SecureRandom} entropy, Base64url, no padding. */
