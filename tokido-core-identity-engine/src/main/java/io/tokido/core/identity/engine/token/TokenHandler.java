@@ -15,6 +15,7 @@ import io.tokido.core.identity.spi.ClientSecret;
 import io.tokido.core.identity.spi.ClientStore;
 import io.tokido.core.identity.spi.GrantType;
 import io.tokido.core.identity.spi.PersistedGrant;
+import io.tokido.core.identity.spi.RefreshTokenUsage;
 import io.tokido.core.identity.spi.ResourceStore;
 import io.tokido.core.identity.spi.TokenStore;
 import io.tokido.core.identity.spi.UserStore;
@@ -28,6 +29,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Drives the OAuth/OIDC {@code /token} endpoint.
@@ -123,6 +125,7 @@ public final class TokenHandler {
         // 2. Dispatch on grant type.
         return switch (req.grantType()) {
             case "authorization_code" -> handleAuthorizationCode(req, client);
+            case "refresh_token" -> handleRefreshToken(req, client);
             default -> new TokenResult.Error(
                     "unsupported_grant_type", "grant_type not supported: " + req.grantType());
         };
@@ -238,6 +241,113 @@ public final class TokenHandler {
                 refreshHandle,
                 idToken,
                 grant.scopes());
+    }
+
+    // ---- refresh_token grant ----
+
+    /**
+     * Refresh-token redemption per RFC 6749 §6 + OIDC Core §12.
+     *
+     * <p>Mirrors the auth-code path's gates: client must be allowed to use
+     * the refresh_token grant, the handle must be a known unconsumed
+     * REFRESH_TOKEN grant for this client, and reuse of an already-consumed
+     * refresh token triggers ADR-0008 theft detection (wipe all grants for
+     * subject/client + emit {@code refresh_token.reuse}).
+     *
+     * <p>Scopes may be narrowed by the {@code scope} request param (RFC
+     * 6749 §6) but never widened. Rotation behaviour follows
+     * {@link Client#refreshTokenUsage()}: {@link RefreshTokenUsage#ONE_TIME}
+     * marks the old grant consumed and issues a fresh handle;
+     * {@link RefreshTokenUsage#REUSE} leaves the old grant alone and
+     * returns a null {@code refresh_token} in the response (the client
+     * keeps using its existing handle).
+     */
+    private TokenResult handleRefreshToken(TokenRequest req, Client client) {
+        // 1. Client allowed to use the refresh_token grant?
+        if (!client.allowedGrantTypes().contains(GrantType.REFRESH_TOKEN)) {
+            return new TokenResult.Error(
+                    "unauthorized_client",
+                    "client not allowed to use refresh_token grant");
+        }
+        // 2. Required field.
+        if (req.refreshToken() == null || req.refreshToken().isBlank()) {
+            return new TokenResult.Error("invalid_request", "refresh_token is required");
+        }
+        // 3. Lookup + binding checks.
+        PersistedGrant grant = tokenStore.findByHandle(req.refreshToken());
+        if (grant == null) {
+            return new TokenResult.Error("invalid_grant", "unknown or expired refresh_token");
+        }
+        if (grant.type() != GrantType.REFRESH_TOKEN) {
+            return new TokenResult.Error("invalid_grant", "handle is not a refresh token");
+        }
+        if (!grant.clientId().equals(client.clientId())) {
+            return new TokenResult.Error("invalid_grant", "refresh_token does not match client");
+        }
+        // 4. Theft detection (ADR-0008): reuse of consumed refresh = client compromised.
+        if (grant.consumedTime() != null) {
+            eventSink.emit(
+                    "refresh_token.reuse",
+                    clock.instant(),
+                    Map.of("subject", grant.subjectId(), "client", client.clientId()));
+            tokenStore.removeAll(grant.subjectId(), client.clientId());
+            return new TokenResult.Error("invalid_grant", "refresh token reuse detected");
+        }
+        // 5. Scope narrowing (RFC 6749 §6).
+        Set<String> grantedScopes = grant.scopes();
+        if (!req.scopes().isEmpty()) {
+            if (!grantedScopes.containsAll(req.scopes())) {
+                return new TokenResult.Error(
+                        "invalid_scope", "requested scopes exceed granted scopes");
+            }
+            grantedScopes = req.scopes();
+        }
+        // 6. Recover nonce + auth_time so the new ID token preserves them
+        // per OIDC Core §12.1.
+        RefreshTokenData rtd;
+        try {
+            rtd = RefreshTokenData.fromJson(grant.data());
+        } catch (RuntimeException e) {
+            return new TokenResult.Error("invalid_grant", "refresh_token data corrupt");
+        }
+        // 7. Build + sign new tokens.
+        Instant now = clock.instant();
+        SigningKey key = keyStore.activeSigningKey(SignatureAlgorithm.RS256);
+        String accessTokenPayload = new AccessTokenBuilder(issuer, clock)
+                .build(grant.subjectId(), client.clientId(), grantedScopes, client.accessTokenLifetime());
+        String accessToken = tokenSigner.sign(accessTokenPayload, key);
+        String idToken = null;
+        if (grantedScopes.contains("openid")) {
+            String idTokenPayload = new IdTokenBuilder(issuer, resourceStore, userStore, clock, ID_TOKEN_LIFETIME)
+                    .build(grant.subjectId(), client.clientId(), grantedScopes, rtd.nonce(), rtd.authTime());
+            idToken = tokenSigner.sign(idTokenPayload, key);
+        }
+        // 8. Rotate refresh handle per the client's refresh-token usage policy.
+        String newRefreshHandle = null;
+        if (client.refreshTokenUsage() == RefreshTokenUsage.ONE_TIME) {
+            // Mark the consumed handle so the next presentation triggers
+            // theft detection.
+            tokenStore.store(new PersistedGrant(
+                    grant.handle(), grant.type(),
+                    grant.subjectId(), grant.clientId(),
+                    grant.scopes(), grant.creationTime(), grant.expiration(),
+                    now, grant.data()));
+            // Issue a fresh handle; carry the same RefreshTokenData payload
+            // so subsequent ID-token issuances keep preserving the original
+            // nonce + auth_time.
+            newRefreshHandle = RandomHandle.generate(REFRESH_TOKEN_BYTE_LENGTH);
+            tokenStore.store(new PersistedGrant(
+                    newRefreshHandle, GrantType.REFRESH_TOKEN,
+                    grant.subjectId(), client.clientId(),
+                    grantedScopes, now,
+                    now.plus(client.refreshTokenLifetime()),
+                    null, grant.data()));
+        }
+        // For REUSE: leave the existing grant alone and return a null
+        // refresh_token in the response (client keeps its existing handle).
+        return new TokenResult.Success(
+                accessToken, "Bearer", client.accessTokenLifetime(),
+                newRefreshHandle, idToken, grantedScopes);
     }
 
     // ---- helpers ----

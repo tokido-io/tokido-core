@@ -246,7 +246,8 @@ class TokenHandlerTest {
     // ---- unsupported_grant_type ----
 
     @Test
-    void refreshTokenGrant_returnsUnsupportedGrantType() {
+    void refreshTokenGrant_whenClientLacksGrantType_returnsUnauthorizedClient() {
+        // publicClient() only allows AUTHORIZATION_CODE, not REFRESH_TOKEN.
         Client client = publicClient();
         TokenHandler handler = handler(client, new RecordingTokenStore(), recordingSigner());
 
@@ -256,7 +257,7 @@ class TokenHandlerTest {
                 null, null, null, "any-refresh-handle", Set.of(), Map.of());
         TokenResult.Error err = (TokenResult.Error) handler.handle(req);
 
-        assertThat(err.code()).isEqualTo("unsupported_grant_type");
+        assertThat(err.code()).isEqualTo("unauthorized_client");
     }
 
     @Test
@@ -447,7 +448,242 @@ class TokenHandlerTest {
         assertThat(err.code()).isEqualTo("invalid_grant");
     }
 
+    // ---- refresh_token grant ----
+
+    private static final String REFRESH_HANDLE = "refresh-handle-1";
+
+    @Test
+    void refreshTokenGrant_happyPath_oneTimeRotatesAndReturnsNewHandle() {
+        Client client = refreshClient(RefreshTokenUsage.ONE_TIME);
+        RecordingTokenStore tokens = new RecordingTokenStore();
+        tokens.putHandle(refreshGrant(client, null));
+        RecordingSigner signer = recordingSigner();
+        TokenHandler handler = handler(client, tokens, signer);
+
+        TokenResult.Success ok = (TokenResult.Success) handler.handle(refreshRequest(client, REFRESH_HANDLE));
+
+        assertThat(ok.tokenType()).isEqualTo("Bearer");
+        assertThat(ok.expiresIn()).isEqualTo(client.accessTokenLifetime());
+        assertThat(ok.accessToken()).isNotBlank();
+        assertThat(ok.idToken()).isNotBlank();
+        assertThat(ok.refreshToken()).isNotBlank().isNotEqualTo(REFRESH_HANDLE);
+        assertThat(ok.scope()).containsExactlyInAnyOrder("openid", "profile");
+
+        // Old refresh handle marked consumed.
+        PersistedGrant oldRefresh = tokens.lookup(REFRESH_HANDLE);
+        assertThat(oldRefresh.consumedTime()).isEqualTo(NOW);
+        // New refresh handle persisted, not yet consumed, with same data payload.
+        PersistedGrant newRefresh = tokens.lookup(ok.refreshToken());
+        assertThat(newRefresh.type()).isEqualTo(GrantType.REFRESH_TOKEN);
+        assertThat(newRefresh.consumedTime()).isNull();
+        assertThat(newRefresh.subjectId()).isEqualTo("user-1");
+        assertThat(newRefresh.data()).isEqualTo(oldRefresh.data());
+    }
+
+    @Test
+    void refreshTokenGrant_happyPath_reuseDoesNotRotate() {
+        Client client = refreshClient(RefreshTokenUsage.REUSE);
+        RecordingTokenStore tokens = new RecordingTokenStore();
+        tokens.putHandle(refreshGrant(client, null));
+        TokenHandler handler = handler(client, tokens, recordingSigner());
+
+        TokenResult.Success ok = (TokenResult.Success) handler.handle(refreshRequest(client, REFRESH_HANDLE));
+
+        // REUSE: response carries no refresh_token (client keeps existing handle).
+        assertThat(ok.refreshToken()).isNull();
+        assertThat(ok.accessToken()).isNotBlank();
+        // Original grant unchanged.
+        PersistedGrant orig = tokens.lookup(REFRESH_HANDLE);
+        assertThat(orig.consumedTime()).isNull();
+        assertThat(tokens.byType(GrantType.REFRESH_TOKEN)).hasSize(1);
+    }
+
+    @Test
+    void refreshTokenGrant_idTokenPreservesNonceAndAuthTime() {
+        // OIDC Core §12.1: refreshed ID tokens MUST carry the same nonce
+        // and auth_time as the original. RecordingSigner captures the raw
+        // payload it was asked to sign so we can inspect it directly.
+        Client client = refreshClient(RefreshTokenUsage.ONE_TIME);
+        RecordingTokenStore tokens = new RecordingTokenStore();
+        tokens.putHandle(refreshGrant(client, null));
+        RecordingSigner signer = recordingSigner();
+        TokenHandler handler = handler(client, tokens, signer);
+
+        handler.handle(refreshRequest(client, REFRESH_HANDLE));
+
+        // Two signs happen: 0 = access token, 1 = ID token. Both carry the
+        // same subject; only the ID token has nonce + auth_time.
+        assertThat(signer.calls).hasSize(2);
+        String idTokenPayload = signer.calls.get(1).payload();
+        assertThat(idTokenPayload)
+                .contains("\"nonce\":\"n-0\"")
+                .contains("\"auth_time\":" + Instant.parse("2026-05-02T11:55:00Z").getEpochSecond());
+    }
+
+    @Test
+    void refreshTokenGrant_missingRefreshToken_returnsInvalidRequest() {
+        Client client = refreshClient(RefreshTokenUsage.ONE_TIME);
+        TokenHandler handler = handler(client, new RecordingTokenStore(), recordingSigner());
+
+        TokenRequest req = new TokenRequest(
+                "refresh_token", client.clientId(), null,
+                ClientAuthenticationMethod.NONE,
+                null, null, null,
+                /* refreshToken */ null,
+                Set.of(), Map.of());
+        TokenResult.Error err = (TokenResult.Error) handler.handle(req);
+
+        assertThat(err.code()).isEqualTo("invalid_request");
+    }
+
+    @Test
+    void refreshTokenGrant_unknownHandle_returnsInvalidGrant() {
+        Client client = refreshClient(RefreshTokenUsage.ONE_TIME);
+        TokenHandler handler = handler(client, new RecordingTokenStore(), recordingSigner());
+
+        TokenResult.Error err = (TokenResult.Error) handler.handle(refreshRequest(client, "nope"));
+
+        assertThat(err.code()).isEqualTo("invalid_grant");
+    }
+
+    @Test
+    void refreshTokenGrant_handleResolvesToAuthCode_returnsInvalidGrant() {
+        Client client = refreshClient(RefreshTokenUsage.ONE_TIME);
+        RecordingTokenStore tokens = new RecordingTokenStore();
+        // Put an AUTHORIZATION_CODE grant under what the request will use as
+        // its refresh_token handle.
+        tokens.putHandle(authCodeGrant(client, null));
+        TokenHandler handler = handler(client, tokens, recordingSigner());
+
+        TokenResult.Error err = (TokenResult.Error) handler.handle(refreshRequest(client, CODE));
+
+        assertThat(err.code()).isEqualTo("invalid_grant");
+    }
+
+    @Test
+    void refreshTokenGrant_wrongClient_returnsInvalidGrant() {
+        Client client = refreshClient(RefreshTokenUsage.ONE_TIME);
+        RecordingTokenStore tokens = new RecordingTokenStore();
+        tokens.putHandle(new PersistedGrant(
+                REFRESH_HANDLE, GrantType.REFRESH_TOKEN, "user-1",
+                /* clientId */ "other-client",
+                Set.of("openid"),
+                NOW.minusSeconds(60), NOW.plus(Duration.ofDays(30)),
+                null,
+                new RefreshTokenData(null, null).toJson()));
+        TokenHandler handler = handler(client, tokens, recordingSigner());
+
+        TokenResult.Error err = (TokenResult.Error) handler.handle(refreshRequest(client, REFRESH_HANDLE));
+
+        assertThat(err.code()).isEqualTo("invalid_grant");
+    }
+
+    @Test
+    void refreshTokenGrant_consumedHandle_triggersTheftDetection() {
+        Client client = refreshClient(RefreshTokenUsage.ONE_TIME);
+        RecordingTokenStore tokens = new RecordingTokenStore();
+        tokens.putHandle(refreshGrant(client, /* consumedTime */ NOW.minusSeconds(30)));
+        TokenHandler handler = handler(client, tokens, recordingSigner());
+
+        TokenResult.Error err = (TokenResult.Error) handler.handle(refreshRequest(client, REFRESH_HANDLE));
+
+        assertThat(err.code()).isEqualTo("invalid_grant");
+        // CRITICAL ASSERTION: every grant for (subject, client) was wiped.
+        assertThat(tokens.removeAllCalls)
+                .containsExactly(new RemoveAllCall("user-1", client.clientId()));
+    }
+
+    @Test
+    void refreshTokenGrant_scopeNarrowing_returnsNarrowedScopes() {
+        Client client = refreshClient(RefreshTokenUsage.ONE_TIME);
+        RecordingTokenStore tokens = new RecordingTokenStore();
+        tokens.putHandle(refreshGrant(client, null));
+        TokenHandler handler = handler(client, tokens, recordingSigner());
+
+        TokenRequest req = new TokenRequest(
+                "refresh_token", client.clientId(), null,
+                ClientAuthenticationMethod.NONE,
+                null, null, null, REFRESH_HANDLE,
+                /* scope */ Set.of("openid"),  // narrower than original {openid, profile}
+                Map.of());
+        TokenResult.Success ok = (TokenResult.Success) handler.handle(req);
+
+        assertThat(ok.scope()).containsExactly("openid");
+    }
+
+    @Test
+    void refreshTokenGrant_scopeExpansionAttempt_returnsInvalidScope() {
+        Client client = refreshClient(RefreshTokenUsage.ONE_TIME);
+        RecordingTokenStore tokens = new RecordingTokenStore();
+        tokens.putHandle(refreshGrant(client, null));
+        TokenHandler handler = handler(client, tokens, recordingSigner());
+
+        TokenRequest req = new TokenRequest(
+                "refresh_token", client.clientId(), null,
+                ClientAuthenticationMethod.NONE,
+                null, null, null, REFRESH_HANDLE,
+                /* scope */ Set.of("openid", "profile", "email"),  // email not in original
+                Map.of());
+        TokenResult.Error err = (TokenResult.Error) handler.handle(req);
+
+        assertThat(err.code()).isEqualTo("invalid_scope");
+    }
+
+    @Test
+    void refreshTokenGrant_corruptDataPayload_returnsInvalidGrant() {
+        Client client = refreshClient(RefreshTokenUsage.ONE_TIME);
+        RecordingTokenStore tokens = new RecordingTokenStore();
+        tokens.putHandle(new PersistedGrant(
+                REFRESH_HANDLE, GrantType.REFRESH_TOKEN, "user-1", client.clientId(),
+                Set.of("openid"),
+                NOW.minusSeconds(60), NOW.plus(Duration.ofDays(30)),
+                null,
+                /* malformed */ "not-json"));
+        TokenHandler handler = handler(client, tokens, recordingSigner());
+
+        TokenResult.Error err = (TokenResult.Error) handler.handle(refreshRequest(client, REFRESH_HANDLE));
+
+        assertThat(err.code()).isEqualTo("invalid_grant");
+    }
+
     // ---- helpers ----
+
+    private static Client refreshClient(RefreshTokenUsage usage) {
+        return new Client(
+                "client-1", Set.of(),
+                Set.of(REDIRECT), Set.of(),
+                Set.of("openid", "profile"),
+                Set.of(GrantType.AUTHORIZATION_CODE, GrantType.REFRESH_TOKEN),
+                Set.of(ClientAuthenticationMethod.NONE),
+                true, false,
+                Duration.ofMinutes(15),
+                Duration.ofDays(30),
+                usage,
+                Map.of(), true);
+    }
+
+    private static PersistedGrant refreshGrant(Client client, Instant consumedTime) {
+        Instant created = NOW.minusSeconds(60);
+        String data = new RefreshTokenData(
+                "n-0",
+                Instant.parse("2026-05-02T11:55:00Z"))
+                .toJson();
+        return new PersistedGrant(
+                REFRESH_HANDLE, GrantType.REFRESH_TOKEN, "user-1", client.clientId(),
+                Set.of("openid", "profile"),
+                created, created.plus(Duration.ofDays(30)),
+                consumedTime,
+                data);
+    }
+
+    private static TokenRequest refreshRequest(Client client, String handle) {
+        return new TokenRequest(
+                "refresh_token", client.clientId(), null,
+                ClientAuthenticationMethod.NONE,
+                null, null, null,
+                handle,
+                Set.of(), Map.of());
+    }
 
     private static Client publicClient() {
         return new Client(
