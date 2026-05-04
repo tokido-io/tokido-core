@@ -21,7 +21,7 @@ The OIDC extension is being built across six releases (M0 → M5). The current r
 
 **OIDC basic conformance: 0/35 at M2.RC1 in unattended mode** (badge above tracks live pass-count). The OIDF v5+ basic-cert plan exercises a full RP-side browser flow and stalls without a browser driver; integrating Selenium / Playwright is M2.RC2 work. Target ≥ 18/35 at M2 final.
 
-Capabilities at M2.RC1: `authorization_code` grant + PKCE (S256/plain) with ADR-0008 theft detection, ID-tokens (RS256), refresh tokens (issued; redemption at M2.RC2), discovery, JWKS, userinfo. `prompt=none` per OIDC Core §3.1.2.1 (returns `login_required` / `consent_required` instead of UI). `client.allowedGrantTypes` enforced at both authorize and token endpoints (RFC 6749 §5.2 `unauthorized_client`).
+Capabilities (RC1 + the M2.RC2-direction work landed past the tag): `authorization_code` grant + PKCE (S256/plain) with ADR-0008 theft detection, ID-tokens (RS256), refresh tokens — issued at RC1, **redemption (RFC 6749 §6, OIDC Core §12) landed post-tag** with the same theft-detection posture (consumed-handle reuse → wipe all grants for subject/client). Refreshed ID tokens preserve `nonce` + `auth_time` per OIDC Core §12.1; rotation honours `client.refreshTokenUsage()` (`ONE_TIME` rotates, `REUSE` returns null in the response). Discovery, JWKS, userinfo. `prompt=none` per OIDC Core §3.1.2.1 (returns `login_required` / `consent_required` instead of UI). `client.allowedGrantTypes` enforced at both authorize and token endpoints (RFC 6749 §5.2 `unauthorized_client`).
 
 | Module | Introduced | API status | Coverage | Notes |
 |---|---|---|---|---|
