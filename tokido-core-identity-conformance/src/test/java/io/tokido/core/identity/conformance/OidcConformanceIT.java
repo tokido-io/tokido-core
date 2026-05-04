@@ -30,7 +30,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   <li>Submit a test plan via the suite REST API targeting the SUT's URL.</li>
  *   <li>For each module in the plan, create a test instance via the runner API.</li>
  *   <li>Poll each test instance until FINISHED or INTERRUPTED.</li>
- *   <li>Assert pass-count >= floor for the current milestone (M0: 0).</li>
+ *   <li>Assert pass-count >= floor for the current milestone (env var
+ *       {@code CONFORMANCE_FLOOR}; default 0; see {@link #milestoneFloor()}).</li>
  * </ol>
  *
  * <p>The OIDF conformance suite REST API (confirmed by live probing against
@@ -193,18 +194,28 @@ class OidcConformanceIT {
             // Terminal status values: FINISHED, INTERRUPTED
             // result values: PASSED, FAILED, WARNING, REVIEW, SKIPPED, UNKNOWN
             total = testIds.size();
-            boolean firstFailureLogged = false;
+            boolean firstNonPassLogged = false;
             for (String testId : testIds) {
-                String result = pollUntilFinished(testId, MODULE_TIMEOUT);
+                String result;
+                try {
+                    result = pollUntilFinished(testId, MODULE_TIMEOUT);
+                } catch (IllegalStateException timeout) {
+                    // Tests that stall in WAITING (the unattended-mode case
+                    // until a Selenium driver lands at M2.RC2) hit our poll
+                    // deadline. Treat as non-pass and keep iterating so the
+                    // remaining tests still get tabulated.
+                    result = "TIMEOUT";
+                    System.err.println("[oidf] " + testId + " " + timeout.getMessage());
+                }
                 if ("PASSED".equals(result)) {
                     passed++;
-                } else if (!firstFailureLogged) {
-                    // Dump the suite's structured log for the first failure so
-                    // we have ground-truth on why our SUT is failing OIDF
-                    // validation. Subsequent failures usually share the same
-                    // root cause; one dump is plenty for diagnosis.
+                } else if (!firstNonPassLogged) {
+                    // Dump the suite's structured log for the first non-pass
+                    // (FAILED, INTERRUPTED, TIMEOUT) so we have ground-truth
+                    // on why our SUT is failing OIDF validation. Subsequent
+                    // non-passes usually share the same root cause.
                     dumpTestLog(testId);
-                    firstFailureLogged = true;
+                    firstNonPassLogged = true;
                 }
             }
         } finally {
@@ -214,7 +225,7 @@ class OidcConformanceIT {
             writeResultsFile(passed, total);
         }
 
-        long floor = milestoneFloor(); // M0 = 0
+        long floor = milestoneFloor();
         assertTrue(passed >= floor,
                 "OIDF pass-count " + passed + "/" + total
                         + " is below milestone floor " + floor);
@@ -252,7 +263,11 @@ class OidcConformanceIT {
 
     // ── helpers ──────────────────────────────────────────────────────────────────
 
-    /** M0=0, M1=0, M2≥80%, M3≥90%, M4≥95%, M5=full.  CI may override via env var. */
+    /**
+     * Per-milestone OIDF basic-cert pass-count floor: M0/M1=0 (no engine work
+     * landed); M2.RC1=0 (Selenium driver lands at M2.RC2); M2≥18 (target);
+     * M3≥27; M4≥32; M5=35. CI overrides via {@code CONFORMANCE_FLOOR} env var.
+     */
     private static long milestoneFloor() {
         String fromEnv = System.getenv("CONFORMANCE_FLOOR");
         return fromEnv != null ? Long.parseLong(fromEnv) : 0L;
