@@ -19,9 +19,9 @@ Production-grade MFA toolkit for Java. TOTP, recovery codes, extensible factors.
 
 The OIDC extension is being built across six releases (M0 → M5). The current release is **`0.1.0-M1`** (Maven Central). The next milestone is **`0.1.0-M2.RC1`** (git-only sub-release on the `m2-rc1-engine` branch) — the engine's `authorize`, `token` (code grant + PKCE), `userInfo`, `discovery`, and `jwks` methods are now implemented; the OIDF basic-cert conformance harness (`tokido-core-identity-conformance`) wires a real `IdentityEngine` via `EngineAdapter`.
 
-**OIDC basic conformance: target ≥ 18/35 at M2.RC1** (badge above tracks live pass-count).
+**OIDC basic conformance: 0/35 at M2.RC1 in unattended mode** (badge above tracks live pass-count). The OIDF v5+ basic-cert plan exercises a full RP-side browser flow and stalls without a browser driver; integrating Selenium / Playwright is M2.RC2 work. Target ≥ 18/35 at M2 final.
 
-Capabilities at M2.RC1: `authorization_code` grant + PKCE (S256/plain), ID-tokens (RS256), refresh tokens (issued; redemption at M2.RC2), discovery, JWKS, userinfo. ADR-0007 (key rotation) and ADR-0008 (auth-code theft detection) referenced.
+Capabilities at M2.RC1: `authorization_code` grant + PKCE (S256/plain) with ADR-0008 theft detection, ID-tokens (RS256), refresh tokens (issued; redemption at M2.RC2), discovery, JWKS, userinfo. `prompt=none` per OIDC Core §3.1.2.1 (returns `login_required` / `consent_required` instead of UI). `client.allowedGrantTypes` enforced at both authorize and token endpoints (RFC 6749 §5.2 `unauthorized_client`).
 
 | Module | Introduced | API status | Coverage | Notes |
 |---|---|---|---|---|
