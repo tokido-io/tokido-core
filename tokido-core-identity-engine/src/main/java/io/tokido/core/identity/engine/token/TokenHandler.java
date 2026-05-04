@@ -214,8 +214,11 @@ public final class TokenHandler {
                         data.nonce(), data.authTime());
         String idToken = tokenSigner.sign(idTokenPayload, key);
 
-        // 9. Mint refresh token. Persist as REFRESH_TOKEN grant for RC2.
+        // 9. Mint refresh token. Persist as REFRESH_TOKEN grant. The data
+        // payload carries nonce + auth_time so the redemption path can
+        // re-issue ID tokens with the same values per OIDC Core §12.1.
         String refreshHandle = RandomHandle.generate(REFRESH_TOKEN_BYTE_LENGTH);
+        String refreshDataJson = new RefreshTokenData(data.nonce(), data.authTime()).toJson();
         PersistedGrant refreshGrant = new PersistedGrant(
                 refreshHandle,
                 GrantType.REFRESH_TOKEN,
@@ -225,7 +228,7 @@ public final class TokenHandler {
                 now,
                 now.plus(client.refreshTokenLifetime()),
                 null,
-                "");
+                refreshDataJson);
         tokenStore.store(refreshGrant);
 
         return new TokenResult.Success(

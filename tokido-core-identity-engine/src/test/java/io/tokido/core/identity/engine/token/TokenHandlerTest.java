@@ -98,6 +98,11 @@ class TokenHandlerTest {
         assertThat(refresh.creationTime()).isEqualTo(NOW);
         assertThat(refresh.expiration()).isEqualTo(NOW.plus(client.refreshTokenLifetime()));
         assertThat(refresh.consumedTime()).isNull();
+        // Refresh data payload carries nonce + authTime for OIDC Core §12.1
+        // claim preservation across refreshes.
+        RefreshTokenData rtd = RefreshTokenData.fromJson(refresh.data());
+        assertThat(rtd.nonce()).isEqualTo("n-0");
+        assertThat(rtd.authTime()).isEqualTo(Instant.parse("2026-05-02T11:55:00Z"));
     }
 
     @Test
