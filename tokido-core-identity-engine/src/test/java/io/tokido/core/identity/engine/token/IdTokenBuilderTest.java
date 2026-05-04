@@ -1,6 +1,5 @@
 package io.tokido.core.identity.engine.token;
 
-import io.tokido.core.identity.engine.authorize.AuthorizationCodeData;
 import io.tokido.core.identity.spi.AuthenticationResult;
 import io.tokido.core.identity.spi.BrokeredAuthentication;
 import io.tokido.core.identity.spi.IdentityScope;
@@ -33,26 +32,20 @@ class IdTokenBuilderTest {
     private static final Instant NOW = Instant.parse("2026-05-02T12:00:00Z");
     private static final Clock FIXED = Clock.fixed(NOW, ZoneOffset.UTC);
     private static final Duration LIFETIME = Duration.ofMinutes(5);
+    private static final Instant AUTH_TIME = Instant.parse("2026-05-02T11:55:00Z");
 
     @Test
     void happyPathEmitsAllCoreClaimsAndAuthTimeAndNonce() {
-        AuthorizationCodeData data = new AuthorizationCodeData(
-                "n-123", "chal", "S256",
-                Set.of("openid"),
-                "https://app.example/cb",
-                Instant.parse("2026-05-02T11:55:00Z"),
-                "urn:mace:incommon:iap:silver");
-
         ResourceStore resources = scopeResolver(Map.of(
                 "openid", new IdentityScope("openid", null, Set.of("sub"))));
         UserStore users = noClaimsUserStore();
 
         String json = new IdTokenBuilder(ISSUER, resources, users, FIXED, LIFETIME)
-                .build("user-1", "client-1", Set.of("openid"), data);
+                .build("user-1", "client-1", Set.of("openid"), "n-123", AUTH_TIME);
 
         long iat = NOW.getEpochSecond();
         long exp = NOW.plus(LIFETIME).getEpochSecond();
-        long authTime = Instant.parse("2026-05-02T11:55:00Z").getEpochSecond();
+        long authTime = AUTH_TIME.getEpochSecond();
         assertThat(json)
                 .contains("\"iss\":\"https://issuer.example/\"")
                 .contains("\"sub\":\"user-1\"")
@@ -64,39 +57,25 @@ class IdTokenBuilderTest {
     }
 
     @Test
-    void omitsNonceWhenAuthorizationCodeDataHasNullNonce() {
-        AuthorizationCodeData data = new AuthorizationCodeData(
-                /* nonce */ null, null, null,
-                Set.of("openid"),
-                "https://app.example/cb",
-                Instant.parse("2026-05-02T11:55:00Z"),
-                null);
-
+    void omitsNonceWhenNonceArgIsNull() {
         ResourceStore resources = scopeResolver(Map.of(
                 "openid", new IdentityScope("openid", null, Set.of("sub"))));
         UserStore users = noClaimsUserStore();
 
         String json = new IdTokenBuilder(ISSUER, resources, users, FIXED, LIFETIME)
-                .build("user-1", "client-1", Set.of("openid"), data);
+                .build("user-1", "client-1", Set.of("openid"), null, AUTH_TIME);
 
         assertThat(json).doesNotContain("\"nonce\"");
     }
 
     @Test
-    void omitsAuthTimeWhenAuthorizationCodeDataHasNullAuthTime() {
-        AuthorizationCodeData data = new AuthorizationCodeData(
-                "n-1", null, null,
-                Set.of("openid"),
-                "https://app.example/cb",
-                /* authTime */ null,
-                null);
-
+    void omitsAuthTimeWhenAuthTimeArgIsNull() {
         ResourceStore resources = scopeResolver(Map.of(
                 "openid", new IdentityScope("openid", null, Set.of("sub"))));
         UserStore users = noClaimsUserStore();
 
         String json = new IdTokenBuilder(ISSUER, resources, users, FIXED, LIFETIME)
-                .build("user-1", "client-1", Set.of("openid"), data);
+                .build("user-1", "client-1", Set.of("openid"), "n-1", null);
 
         assertThat(json).doesNotContain("\"auth_time\"");
     }
@@ -116,12 +95,8 @@ class IdTokenBuilderTest {
                 new UserClaim("family_name", "Smith"),
                 new UserClaim("email", "alice@example.com")));
 
-        AuthorizationCodeData data = new AuthorizationCodeData(
-                null, null, null, Set.of("openid", "profile"),
-                "https://app.example/cb", null, null);
-
         String json = new IdTokenBuilder(ISSUER, resources, users, FIXED, LIFETIME)
-                .build("user-1", "client-1", Set.of("openid", "profile"), data);
+                .build("user-1", "client-1", Set.of("openid", "profile"), null, null);
 
         assertThat(json)
                 .contains("\"name\":\"Alice\"")
@@ -137,12 +112,8 @@ class IdTokenBuilderTest {
                 "openid", new IdentityScope("openid", null, Set.of("sub"))));
         UserStore users = noClaimsUserStore();
 
-        AuthorizationCodeData data = new AuthorizationCodeData(
-                null, null, null, Set.of("openid"),
-                "https://app.example/cb", null, null);
-
         String json = new IdTokenBuilder(ISSUER, resources, users, FIXED, LIFETIME)
-                .build("user-1", "client-1", Set.of("openid", "phone"), data);
+                .build("user-1", "client-1", Set.of("openid", "phone"), null, null);
 
         assertThat(json).contains("\"sub\":\"user-1\"");
     }
@@ -156,27 +127,20 @@ class IdTokenBuilderTest {
                 "profile", new IdentityScope("profile", null, Set.of("age"))));
         UserStore users = userStoreWithClaims(Set.of(new UserClaim("age", "42")));
 
-        AuthorizationCodeData data = new AuthorizationCodeData(
-                null, null, null, Set.of("profile"),
-                "https://app.example/cb", null, null);
-
         String json = new IdTokenBuilder(ISSUER, resources, users, FIXED, LIFETIME)
-                .build("user-1", "client-1", Set.of("profile"), data);
+                .build("user-1", "client-1", Set.of("profile"), null, null);
 
         assertThat(json).contains("\"age\":\"42\"");
     }
 
     @Test
     void jsonShapeIsObjectStartingAndEndingInBraces() {
-        AuthorizationCodeData data = new AuthorizationCodeData(
-                null, null, null, Set.of("openid"),
-                "https://app.example/cb", null, null);
         String json = new IdTokenBuilder(
                 ISSUER,
                 scopeResolver(Map.of("openid", new IdentityScope("openid", null, Set.of("sub")))),
                 noClaimsUserStore(),
                 FIXED, LIFETIME)
-                .build("user-1", "client-1", Set.of("openid"), data);
+                .build("user-1", "client-1", Set.of("openid"), null, null);
 
         assertThat(json).startsWith("{").endsWith("}");
     }

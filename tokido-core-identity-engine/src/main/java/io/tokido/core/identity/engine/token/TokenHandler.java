@@ -210,7 +210,8 @@ public final class TokenHandler {
         String accessToken = tokenSigner.sign(accessTokenPayload, key);
 
         String idTokenPayload = new IdTokenBuilder(issuer, resourceStore, userStore, clock, ID_TOKEN_LIFETIME)
-                .build(grant.subjectId(), client.clientId(), grant.scopes(), data);
+                .build(grant.subjectId(), client.clientId(), grant.scopes(),
+                        data.nonce(), data.authTime());
         String idToken = tokenSigner.sign(idTokenPayload, key);
 
         // 9. Mint refresh token. Persist as REFRESH_TOKEN grant for RC2.
