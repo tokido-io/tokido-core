@@ -143,6 +143,18 @@ public final class AuthorizeHandler {
                     req.state());
         }
 
+        // 4b. Client allowed to use the authorization_code grant?
+        // Per RFC 6749 §5.2 unauthorized_client = "the authenticated client
+        // is not authorized to use this authorization grant type". RC1 only
+        // supports the code grant, so the only meaningful gate here is that
+        // AUTHORIZATION_CODE is in client.allowedGrantTypes.
+        if (!client.allowedGrantTypes().contains(GrantType.AUTHORIZATION_CODE)) {
+            return new AuthorizeResult.Error(
+                    "unauthorized_client",
+                    "client not allowed to use authorization_code grant",
+                    req.state());
+        }
+
         // 5. PKCE required?
         if (client.requirePkce() && (req.codeChallenge() == null || req.codeChallenge().isBlank())) {
             return new AuthorizeResult.Error(

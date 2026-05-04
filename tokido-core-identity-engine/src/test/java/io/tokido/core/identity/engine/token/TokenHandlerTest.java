@@ -255,6 +255,31 @@ class TokenHandlerTest {
     }
 
     @Test
+    void clientNotAllowedToUseCodeGrant_returnsUnauthorizedClient() {
+        // Per RFC 6749 §5.2: defense-in-depth check at the token endpoint.
+        // AuthorizeHandler gates the same constraint earlier; redeeming a
+        // code stolen / issued before the client's grant-type allow-list
+        // changed must still be rejected.
+        Client noCodeGrant = new Client(
+                "client-1", Set.of(),
+                Set.of(REDIRECT), Set.of(),
+                Set.of("openid", "profile"),
+                Set.of(GrantType.REFRESH_TOKEN), // no AUTHORIZATION_CODE
+                Set.of(ClientAuthenticationMethod.NONE),
+                true, false,
+                Duration.ofMinutes(15),
+                Duration.ofDays(30),
+                RefreshTokenUsage.ONE_TIME,
+                Map.of(), true);
+        TokenHandler handler = handler(noCodeGrant, new RecordingTokenStore(), recordingSigner());
+        TokenRequest req = authCodeRequest(noCodeGrant, ClientAuthenticationMethod.NONE, null);
+
+        TokenResult.Error err = (TokenResult.Error) handler.handle(req);
+
+        assertThat(err.code()).isEqualTo("unauthorized_client");
+    }
+
+    @Test
     void clientCredentialsGrant_returnsUnsupportedGrantType() {
         Client client = publicClient();
         TokenHandler handler = handler(client, new RecordingTokenStore(), recordingSigner());

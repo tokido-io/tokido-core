@@ -131,6 +131,16 @@ public final class TokenHandler {
     // ---- authorization_code grant ----
 
     private TokenResult handleAuthorizationCode(TokenRequest req, Client client) {
+        // Per RFC 6749 §5.2 unauthorized_client: the authenticated client is
+        // not authorized to use this authorization grant type. AuthorizeHandler
+        // gates the same constraint at the front door, but a client could
+        // present a code obtained when its grant-type allow-list was wider
+        // (or could attempt with a stolen code) — so re-check at redemption.
+        if (!client.allowedGrantTypes().contains(GrantType.AUTHORIZATION_CODE)) {
+            return new TokenResult.Error(
+                    "unauthorized_client",
+                    "client not allowed to use authorization_code grant");
+        }
         if (req.code() == null || req.code().isBlank()) {
             return new TokenResult.Error("invalid_grant", "code is required");
         }

@@ -299,6 +299,39 @@ class AuthorizeHandlerTest {
     }
 
     @Test
+    void clientNotAllowedToUseCodeGrant_returnsUnauthorizedClient() {
+        // Per RFC 6749 §5.2: unauthorized_client when the client's
+        // allowedGrantTypes excludes AUTHORIZATION_CODE.
+        Client refreshOnlyClient = new Client(
+                "client-1",
+                Set.of(),
+                Set.of("https://app.example/cb"),
+                Set.of(),
+                Set.of("openid", "profile"),
+                Set.of(GrantType.REFRESH_TOKEN), // no AUTHORIZATION_CODE
+                Set.of(ClientAuthenticationMethod.NONE),
+                true,
+                false,
+                Duration.ofMinutes(15),
+                Duration.ofDays(30),
+                RefreshTokenUsage.ONE_TIME,
+                Map.of(),
+                true);
+        AuthorizeHandler handler = new AuthorizeHandler(
+                ISSUER, FIXED_CLOCK, clientStub(refreshOnlyClient),
+                consentStub(consentForAllScopes(refreshOnlyClient)),
+                noopResourceStore(), new RecordingTokenStore());
+
+        AuthorizeResult result = handler.handle(
+                sampleRequest(refreshOnlyClient, "xyz"), sampleSession());
+
+        assertThat(result).isInstanceOf(AuthorizeResult.Error.class);
+        AuthorizeResult.Error err = (AuthorizeResult.Error) result;
+        assertThat(err.code()).isEqualTo("unauthorized_client");
+        assertThat(err.state()).isEqualTo("xyz");
+    }
+
+    @Test
     void disallowedScope_returnsInvalidScopeErrorWithOffendingScopeName() {
         Client client = sampleClient(true);
         AuthorizeHandler handler = new AuthorizeHandler(
