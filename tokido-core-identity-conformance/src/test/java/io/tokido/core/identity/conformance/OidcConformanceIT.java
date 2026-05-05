@@ -109,6 +109,24 @@ class OidcConformanceIT {
 
     @BeforeAll
     static void bootSutAndSuite() throws Exception {
+        // Fail fast if the host-launched browser can't resolve the SUT's
+        // advertised hostname. The dockerised suite sees host.docker.internal
+        // via docker-compose extra_hosts, but Playwright runs on the host
+        // and needs the name in /etc/hosts (Docker Desktop adds it
+        // automatically; on Linux / Colima it's manual — see the
+        // oidc-conformance.yml workflow's "Allow host-launched browser..." step).
+        try {
+            java.net.InetAddress.getByName("host.docker.internal");
+        } catch (java.net.UnknownHostException e) {
+            throw new IllegalStateException(
+                    "host.docker.internal does not resolve from this host. "
+                            + "Add `127.0.0.1 host.docker.internal` to /etc/hosts "
+                            + "(Linux/Colima) or install Docker Desktop. The OIDF "
+                            + "suite advertises SUT URLs at host.docker.internal:<port> "
+                            + "and the Playwright browser cannot follow the redirect "
+                            + "chain without that name resolving on the host.", e);
+        }
+
         sut = EngineAdapter.start(0);
 
         // The OIDF container serves plain HTTP on port 8080.
@@ -121,17 +139,8 @@ class OidcConformanceIT {
         // Headless Chromium drives the OIDF browser flow. First run
         // downloads ~140MB of browser binaries to the local Playwright
         // cache; subsequent runs reuse them.
-        //
-        // --host-resolver-rules maps the dockerised suite's host alias
-        // host.docker.internal to 127.0.0.1, which is where the SUT is
-        // bound from the host's perspective. Without the override the
-        // host-launched browser can't resolve the suite-baked auth-request
-        // URL and the redirect chain stalls before reaching the SUT.
         playwright = Playwright.create();
-        browser = playwright.chromium().launch(new BrowserType.LaunchOptions()
-                .setHeadless(true)
-                .setArgs(java.util.List.of(
-                        "--host-resolver-rules=MAP host.docker.internal 127.0.0.1")));
+        browser = playwright.chromium().launch(new BrowserType.LaunchOptions().setHeadless(true));
 
         runOrFail("docker", "compose", "-f", COMPOSE_FILE.toString(), "up", "-d");
         waitUntilSuiteReady();
@@ -421,15 +430,26 @@ class OidcConformanceIT {
                 return;
             }
         }
-        try (BrowserContext ctx = browser.newContext();
-             Page page = ctx.newPage()) {
-            // navigate() returns once the final response after all redirects
-            // has been received. The suite's callback page may keep polling
-            // the runner API after that, so don't waitForLoadState — the
-            // outer pollUntilFinished is what actually waits for the test
-            // to terminate.
+        try (BrowserContext ctx = browser.newContext()) {
+            Page page = ctx.newPage();
+            // The /test/a/<alias> entry point serves an HTML+JS page that
+            // performs the auth-flow redirect via window.location. navigate()
+            // returns once the document is loaded; we then wait for the page
+            // URL to settle on the suite's callback path (*/callback*),
+            // which only happens after the SUT has issued its 302 back.
             page.navigate(rebased.toString(),
                     new Page.NavigateOptions().setTimeout(15000));
+            try {
+                page.waitForURL(
+                        java.util.regex.Pattern.compile(".*/test/a/[^/]+/callback.*"),
+                        new Page.WaitForURLOptions().setTimeout(20000));
+            } catch (Exception e) {
+                // The flow may have errored on the SUT side (the test
+                // legitimately fails) — fall through to pollUntilFinished
+                // which captures the suite-side outcome.
+                System.err.println("waitForURL(callback) timed out for "
+                        + moduleName + ": current url=" + page.url());
+            }
         } catch (Exception e) {
             System.err.println("browser drive failed for " + moduleName + ": " + e.getMessage());
         }

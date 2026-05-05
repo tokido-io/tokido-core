@@ -28,6 +28,15 @@ jobs:
         with:
           key: oidf-conformance-suite-${{ hashFiles('tokido-core-identity-conformance/src/test/resources/docker-compose.yml') }}
 
+      # The OIDF suite (in Docker) advertises auth-request URLs at
+      # host.docker.internal:<port>. The host-launched Playwright browser
+      # needs that name to resolve to the host. Docker Desktop adds it
+      # automatically; on Linux runners (and on Colima locally) we have to
+      # add it explicitly. The docker-compose has a matching extra_hosts
+      # entry for the suite container side.
+      - name: Allow host-launched browser to resolve host.docker.internal
+        run: echo "127.0.0.1 host.docker.internal" | sudo tee -a /etc/hosts
+
       # NOTE (revisit at M2): this workflow does NOT upload JaCoCo data to
       # Codecov. The conformance module's coverage gate is intentionally
       # skipped at M0 (no main sources). When real engine code lands at M2
