@@ -1,5 +1,10 @@
 package io.tokido.core.identity.conformance;
 
+import com.microsoft.playwright.Browser;
+import com.microsoft.playwright.BrowserContext;
+import com.microsoft.playwright.BrowserType;
+import com.microsoft.playwright.Page;
+import com.microsoft.playwright.Playwright;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -14,7 +19,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -68,15 +72,10 @@ class OidcConformanceIT {
     // (MongoDB index creation + extensive class scanning).  CI machines are often
     // slower.  10 min provides a generous margin.
     private static final Duration BOOT_TIMEOUT = Duration.ofMinutes(10);
-    // M2.RC1: per-module timeout is intentionally short. In unattended mode
-    // (no Selenium / Playwright driver) OIDF tests progress through their
-    // setup phase, then stall waiting for a "browser" to drive the redirect
-    // chain. The suite's own per-test timeout is 5 min; setting ours to 30s
-    // means the IT terminates within ~17 minutes worst-case (35 × 30s) rather
-    // than 175 minutes. Each module that *does* run will finish in well
-    // under 30s on real engine flows. Restore to 5+ minutes once the suite
-    // has a browser-driver attached (M2.RC2).
-    private static final Duration MODULE_TIMEOUT = Duration.ofSeconds(30);
+    // M2.RC2: per-module timeout. Playwright drives the redirect chain so
+    // most tests finish in 1-3s; 90s gives generous margin for slow engine
+    // flows (multi-RTT auth + token + userinfo + retries).
+    private static final Duration MODULE_TIMEOUT = Duration.ofSeconds(90);
     private static final Path COMPOSE_FILE =
             Path.of("src/test/resources/docker-compose.yml");
     private static final Path RESULTS_FILE = Path.of("target/conformance-results.json");
@@ -105,6 +104,8 @@ class OidcConformanceIT {
 
     private static EngineAdapter sut;
     private static HttpClient http;
+    private static Playwright playwright;
+    private static Browser browser;
 
     @BeforeAll
     static void bootSutAndSuite() throws Exception {
@@ -117,12 +118,33 @@ class OidcConformanceIT {
                 .connectTimeout(Duration.ofSeconds(30))
                 .build();
 
+        // Headless Chromium drives the OIDF browser flow. First run
+        // downloads ~140MB of browser binaries to the local Playwright
+        // cache; subsequent runs reuse them.
+        //
+        // --host-resolver-rules maps the dockerised suite's host alias
+        // host.docker.internal to 127.0.0.1, which is where the SUT is
+        // bound from the host's perspective. Without the override the
+        // host-launched browser can't resolve the suite-baked auth-request
+        // URL and the redirect chain stalls before reaching the SUT.
+        playwright = Playwright.create();
+        browser = playwright.chromium().launch(new BrowserType.LaunchOptions()
+                .setHeadless(true)
+                .setArgs(java.util.List.of(
+                        "--host-resolver-rules=MAP host.docker.internal 127.0.0.1")));
+
         runOrFail("docker", "compose", "-f", COMPOSE_FILE.toString(), "up", "-d");
         waitUntilSuiteReady();
     }
 
     @AfterAll
     static void teardown() {
+        try { if (browser != null) browser.close(); } catch (Exception e) {
+            System.err.println("Failed to close browser: " + e.getMessage());
+        }
+        try { if (playwright != null) playwright.close(); } catch (Exception e) {
+            System.err.println("Failed to close Playwright: " + e.getMessage());
+        }
         try {
             if (sut != null) sut.stop();
         } catch (Exception e) {
@@ -177,33 +199,27 @@ class OidcConformanceIT {
             String planId = createPlan(config);
             assertFalse(planId.isBlank(), "plan creation should return a non-empty ID");
 
-            // ── Step 2: instantiate every module in the plan ────────────────────────
+            // ── Step 2 & 3: walk the modules serially ───────────────────────────────
+            //
+            // OIDF tests share the plan's alias; creating a new test
+            // implicitly INTERRUPTS the previous one ("alias conflict").
+            // We must therefore create-drive-poll-finish each test before
+            // moving to the next, rather than batch-creating up front.
             //
             // GET /api/plan/{id} → {modules:[{testModule,...},...]}.
             // POST /api/runner?test=<module>&plan=<planId> → {id,...}.
-            List<String> moduleNames = fetchPlanModules(planId);
-            List<String> testIds = new ArrayList<>();
-            for (String moduleName : moduleNames) {
-                String testId = createTestInstance(planId, moduleName);
-                testIds.add(testId);
-            }
-
-            // ── Step 3: poll until each module reaches a terminal state ──────────────
-            //
             // GET /api/info/{testId} → {status, result, ...}
             // Terminal status values: FINISHED, INTERRUPTED
             // result values: PASSED, FAILED, WARNING, REVIEW, SKIPPED, UNKNOWN
-            total = testIds.size();
+            List<String> moduleNames = fetchPlanModules(planId);
+            total = moduleNames.size();
             boolean firstNonPassLogged = false;
-            for (String testId : testIds) {
+            for (String moduleName : moduleNames) {
+                String testId = createTestInstance(planId, moduleName);
                 String result;
                 try {
                     result = pollUntilFinished(testId, MODULE_TIMEOUT);
                 } catch (IllegalStateException timeout) {
-                    // Tests that stall in WAITING (the unattended-mode case
-                    // until a Selenium driver lands at M2.RC2) hit our poll
-                    // deadline. Treat as non-pass and keep iterating so the
-                    // remaining tests still get tabulated.
                     result = "TIMEOUT";
                     System.err.println("[oidf] " + testId + " " + timeout.getMessage());
                 }
@@ -211,9 +227,9 @@ class OidcConformanceIT {
                     passed++;
                 } else if (!firstNonPassLogged) {
                     // Dump the suite's structured log for the first non-pass
-                    // (FAILED, INTERRUPTED, TIMEOUT) so we have ground-truth
-                    // on why our SUT is failing OIDF validation. Subsequent
-                    // non-passes usually share the same root cause.
+                    // so we have ground-truth on why the SUT is failing OIDF
+                    // validation. Subsequent non-passes usually share the
+                    // same root cause.
                     dumpTestLog(testId);
                     firstNonPassLogged = true;
                 }
@@ -330,18 +346,20 @@ class OidcConformanceIT {
     }
 
     /**
-     * Instantiates one test module inside a plan.
+     * Instantiates one test module inside a plan, then drives the OIDF
+     * RP-side browser flow with Playwright.
      *
      * <p>Confirmed API: {@code POST /api/runner?test=&lt;module&gt;&plan=&lt;planId&gt;}
      * returns 201 {@code {"id":"...","name":"...","url":"...",...}}.
      *
-     * <p>OIDF tests progress through their setup phase (discovery, JWKS
-     * fetch, request build) automatically once created — no external "start
-     * signal" is needed. After setup the test is "redirecting" the simulated
-     * browser to the SUT's authorize endpoint. Driving the redirect chain
-     * onward requires a real browser-driver (Selenium / Playwright); in
-     * unattended mode tests stall here and the suite eventually marks them
-     * INTERRUPTED. Adding a Selenium runner is M2.RC2 work.
+     * <p>OIDF tests progress through setup (discovery, JWKS fetch,
+     * authorization-request build) automatically once created. The test
+     * then waits for a browser to GET its {@code /test/a/&lt;alias&gt;} URL,
+     * which triggers the suite to respond with a 302 to the SUT's
+     * {@code /authorize}. The SUT 302s back to the suite's
+     * {@code /test/a/&lt;alias&gt;/callback}, the suite captures the params,
+     * and the test transitions to {@code FINISHED}. Playwright follows
+     * the redirect chain transparently; without it the test would stall.
      */
     private static String createTestInstance(String planId, String moduleName) throws Exception {
         String url = SUITE_BASE
@@ -357,7 +375,64 @@ class OidcConformanceIT {
                     "test instance creation failed for module " + moduleName
                             + ": " + response.statusCode() + "\n" + response.body());
         }
-        return JsonScrape.extractStringField(response.body(), "id");
+        String testId = JsonScrape.extractStringField(response.body(), "id");
+        String testUrl = JsonScrape.extractStringFieldOrEmpty(response.body(), "url");
+        driveBrowserFlow(testId, testUrl, moduleName);
+        return testId;
+    }
+
+    /**
+     * Wait for the test to reach {@code WAITING}, then have Playwright
+     * navigate to its URL and follow the redirect chain through the SUT
+     * back to the suite's callback. Best-effort — a stuck flow is still
+     * surfaced via {@link #pollUntilFinished}'s timeout.
+     *
+     * <p>A fresh {@link BrowserContext} per test ensures session cookies
+     * from one module don't leak into another; this matches what a real
+     * RP-side browser session would look like.
+     */
+    private static void driveBrowserFlow(String testId, String testUrl, String moduleName) {
+        if (testUrl.isEmpty() || browser == null) return;
+        URI rebased;
+        try {
+            URI raw = URI.create(testUrl);
+            String pathAndQuery = raw.getRawPath()
+                    + (raw.getRawQuery() == null ? "" : "?" + raw.getRawQuery());
+            rebased = SUITE_BASE.resolve(pathAndQuery);
+        } catch (Exception e) {
+            System.err.println("test url unparseable for " + moduleName + ": " + testUrl);
+            return;
+        }
+        // Wait until the suite has finished setting the test up (CREATED → WAITING).
+        // Driving the browser before that confuses the test dispatcher.
+        Instant deadline = Instant.now().plus(Duration.ofSeconds(30));
+        while (Instant.now().isBefore(deadline)) {
+            try {
+                HttpResponse<String> info = send(
+                        HttpRequest.newBuilder(SUITE_BASE.resolve("/api/info/" + testId)).GET());
+                String status = JsonScrape.extractStringFieldOrEmpty(info.body(), "status");
+                if ("WAITING".equals(status)) break;
+                if ("FINISHED".equals(status) || "INTERRUPTED".equals(status)) return;
+            } catch (Exception ignored) {
+                // Transient — keep polling.
+            }
+            try { Thread.sleep(500); } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+        try (BrowserContext ctx = browser.newContext();
+             Page page = ctx.newPage()) {
+            // navigate() returns once the final response after all redirects
+            // has been received. The suite's callback page may keep polling
+            // the runner API after that, so don't waitForLoadState — the
+            // outer pollUntilFinished is what actually waits for the test
+            // to terminate.
+            page.navigate(rebased.toString(),
+                    new Page.NavigateOptions().setTimeout(15000));
+        } catch (Exception e) {
+            System.err.println("browser drive failed for " + moduleName + ": " + e.getMessage());
+        }
     }
 
     /**

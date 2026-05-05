@@ -144,6 +144,18 @@
                 <version>1.9.2</version>
                 <scope>test</scope>
             </dependency>
+            <!--
+                Playwright drives real browser flows for OIDC conformance and
+                future web-flow tests. The first run downloads ~140MB of
+                browser binaries to the local Playwright cache; CI machines
+                must have outbound network or a pre-warmed cache.
+            -->
+            <dependency>
+                <groupId>com.microsoft.playwright</groupId>
+                <artifactId>playwright</artifactId>
+                <version>1.59.0</version>
+                <scope>test</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 

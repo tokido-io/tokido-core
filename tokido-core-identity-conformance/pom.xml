@@ -58,6 +58,17 @@
             <artifactId>assertj-core</artifactId>
             <scope>test</scope>
         </dependency>
+        <!--
+            Playwright drives the OIDF basic-cert plan's RP-side browser
+            redirect chain. Without it the suite stalls waiting for a
+            "user" to follow the 302 from /test/a/<alias> to the SUT and
+            back to the suite's callback. Test scope only.
+        -->
+        <dependency>
+            <groupId>com.microsoft.playwright</groupId>
+            <artifactId>playwright</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

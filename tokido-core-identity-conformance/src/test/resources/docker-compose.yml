@@ -27,7 +27,13 @@ services:
       - OIDC_GOOGLE_SECRET=dummy
       - OIDC_GITLAB_CLIENTID=dummy
       - OIDC_GITLAB_SECRET=dummy
-      - JAVA_EXTRA_ARGS=-Dfintechlabs.devmode=true -Xmx512m
+      # fintechlabs.base_url points the suite at the URL pattern its own
+      # browser-driver expects to use for callbacks. Default is
+      # https://localhost:8443/...; overriding to http://localhost:8080/...
+      # matches what the docker-compose actually exposes (no TLS proxy
+      # bundled with the prebuilt image), which makes the SUT-issued 302
+      # to redirect_uri a URL Playwright can actually fetch.
+      - JAVA_EXTRA_ARGS=-Dfintechlabs.devmode=true -Dfintechlabs.base_url=http://localhost:8080 -Xmx512m
     extra_hosts:
       # On Linux (including CI), Docker containers cannot reach the host via
       # host.docker.internal without this mapping.  On Mac/Windows Docker
