@@ -33,7 +33,7 @@ services:
       # matches what the docker-compose actually exposes (no TLS proxy
       # bundled with the prebuilt image), which makes the SUT-issued 302
       # to redirect_uri a URL Playwright can actually fetch.
-      - JAVA_EXTRA_ARGS=-Dfintechlabs.devmode=true -Dfintechlabs.base_url=http://localhost:8080 -Xmx512m
+      - JAVA_EXTRA_ARGS=-Dfintechlabs.devmode=true -Dfintechlabs.base_url=http://localhost:8080 -Xmx1g
     extra_hosts:
       # On Linux (including CI), Docker containers cannot reach the host via
       # host.docker.internal without this mapping.  On Mac/Windows Docker

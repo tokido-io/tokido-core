@@ -342,6 +342,12 @@ final class EngineAdapter {
             return;
         }
         if (result instanceof AuthorizeResult.Error err) {
+            if (DEBUG) {
+                System.err.println("[engine-adapter] authorize Error code="
+                        + err.code() + " err.state=" + err.state()
+                        + " req.state=" + req.state()
+                        + " req.redirect_uri=" + req.redirectUri());
+            }
             // Per RFC 6749 §4.1.2.1, redirect-back-to-client is only valid when
             // the redirect_uri itself was valid. The engine signals that by
             // setting state==null when redirect_uri validation failed (see

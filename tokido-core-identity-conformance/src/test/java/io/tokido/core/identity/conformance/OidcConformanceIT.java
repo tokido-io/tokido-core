@@ -68,10 +68,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class OidcConformanceIT {
 
-    // The OIDF suite's Spring Boot context takes ~3-6 min on a fast laptop
-    // (MongoDB index creation + extensive class scanning).  CI machines are often
-    // slower.  10 min provides a generous margin.
-    private static final Duration BOOT_TIMEOUT = Duration.ofMinutes(10);
+    // The OIDF suite's Spring Boot context takes 5-8 min on a fast laptop
+    // (MongoDB index creation + extensive class scanning); local Colima
+    // VMs and CI machines may be slower still. 15 min is comfortable
+    // headroom; the readiness probe returns immediately once the API is up.
+    private static final Duration BOOT_TIMEOUT = Duration.ofMinutes(15);
     // M2.RC2: per-module timeout. Playwright drives the redirect chain so
     // most tests finish in 1-3s; 90s gives generous margin for slow engine
     // flows (multi-RTT auth + token + userinfo + retries).
@@ -391,54 +392,32 @@ class OidcConformanceIT {
     }
 
     /**
-     * Wait for the test to reach {@code WAITING}, then have Playwright
-     * navigate to its URL and follow the redirect chain through the SUT
-     * back to the suite's callback. Best-effort — a stuck flow is still
-     * surfaced via {@link #pollUntilFinished}'s timeout.
+     * Drive the auth flow by navigating Playwright directly to the
+     * suite-generated authorization-endpoint URL.
+     *
+     * <p>The test's {@code /test/a/<alias>} entry point is for receiving
+     * the SUT's redirect back, not for kicking off the flow. The suite
+     * generates the auth-request URL during test setup (which fires
+     * synchronously on test creation) and surfaces it in the test's
+     * {@code /api/log/{testId}} stream as a {@code redirect_to_authorization_endpoint}
+     * field. We extract that URL and have the browser visit it directly,
+     * then wait for the URL to settle on the suite's {@code /callback}
+     * path which only happens after the SUT 302s back successfully.
      *
      * <p>A fresh {@link BrowserContext} per test ensures session cookies
-     * from one module don't leak into another; this matches what a real
-     * RP-side browser session would look like.
+     * from one module don't leak into another.
      */
     private static void driveBrowserFlow(String testId, String testUrl, String moduleName) {
-        if (testUrl.isEmpty() || browser == null) return;
-        URI rebased;
-        try {
-            URI raw = URI.create(testUrl);
-            String pathAndQuery = raw.getRawPath()
-                    + (raw.getRawQuery() == null ? "" : "?" + raw.getRawQuery());
-            rebased = SUITE_BASE.resolve(pathAndQuery);
-        } catch (Exception e) {
-            System.err.println("test url unparseable for " + moduleName + ": " + testUrl);
+        if (browser == null) return;
+        // Wait for the suite to finish setup (auth URL is generated then).
+        String authUrl = waitForAuthRequestUrl(testId, Duration.ofSeconds(30));
+        if (authUrl == null) {
+            System.err.println("could not locate auth-request URL for " + moduleName);
             return;
-        }
-        // Wait until the suite has finished setting the test up (CREATED → WAITING).
-        // Driving the browser before that confuses the test dispatcher.
-        Instant deadline = Instant.now().plus(Duration.ofSeconds(30));
-        while (Instant.now().isBefore(deadline)) {
-            try {
-                HttpResponse<String> info = send(
-                        HttpRequest.newBuilder(SUITE_BASE.resolve("/api/info/" + testId)).GET());
-                String status = JsonScrape.extractStringFieldOrEmpty(info.body(), "status");
-                if ("WAITING".equals(status)) break;
-                if ("FINISHED".equals(status) || "INTERRUPTED".equals(status)) return;
-            } catch (Exception ignored) {
-                // Transient — keep polling.
-            }
-            try { Thread.sleep(500); } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                return;
-            }
         }
         try (BrowserContext ctx = browser.newContext()) {
             Page page = ctx.newPage();
-            // The /test/a/<alias> entry point serves an HTML+JS page that
-            // performs the auth-flow redirect via window.location. navigate()
-            // returns once the document is loaded; we then wait for the page
-            // URL to settle on the suite's callback path (*/callback*),
-            // which only happens after the SUT has issued its 302 back.
-            page.navigate(rebased.toString(),
-                    new Page.NavigateOptions().setTimeout(15000));
+            page.navigate(authUrl, new Page.NavigateOptions().setTimeout(15000));
             try {
                 page.waitForURL(
                         java.util.regex.Pattern.compile(".*/test/a/[^/]+/callback.*"),
@@ -452,6 +431,73 @@ class OidcConformanceIT {
             }
         } catch (Exception e) {
             System.err.println("browser drive failed for " + moduleName + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * Poll {@code /api/log/{testId}} until an entry surfaces the
+     * {@code redirect_to_authorization_endpoint} URL the suite expects
+     * the browser to navigate to. Returns null on timeout. The OIDF
+     * suite escapes URL-significant characters in its log JSON
+     * ({@code \\u003d}, {@code \\u0026}, etc.); we decode those so the
+     * URL is valid for navigation.
+     */
+    private static String waitForAuthRequestUrl(String testId, Duration timeout) {
+        Instant deadline = Instant.now().plus(timeout);
+        while (Instant.now().isBefore(deadline)) {
+            try {
+                HttpResponse<String> response = send(
+                        HttpRequest.newBuilder(SUITE_BASE.resolve("/api/log/" + testId)).GET());
+                String url = JsonScrape.extractStringFieldOrEmpty(
+                        response.body(), "redirect_to_authorization_endpoint");
+                if (!url.isEmpty()) return decodeJsonUnicodeEscapes(url);
+                // If the test already terminated, the URL is never coming.
+                String status = pollStatus(testId);
+                if ("FINISHED".equals(status) || "INTERRUPTED".equals(status)) return null;
+            } catch (Exception ignored) {
+                // Transient — keep polling.
+            }
+            try { Thread.sleep(500); } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Decode JSON {@code \\uXXXX} escapes left in URL strings by the OIDF
+     * suite's logger ({@code =} appears as {@code \\u003d}, {@code &} as
+     * {@code \\u0026}, etc.). Unknown escapes pass through unchanged.
+     */
+    private static String decodeJsonUnicodeEscapes(String s) {
+        if (s.indexOf("\\u") < 0) return s;
+        StringBuilder out = new StringBuilder(s.length());
+        int i = 0;
+        while (i < s.length()) {
+            char c = s.charAt(i);
+            if (c == '\\' && i + 5 < s.length() && s.charAt(i + 1) == 'u') {
+                try {
+                    out.append((char) Integer.parseInt(s.substring(i + 2, i + 6), 16));
+                    i += 6;
+                    continue;
+                } catch (NumberFormatException ignored) {
+                    // Fall through to copy the literal backslash.
+                }
+            }
+            out.append(c);
+            i++;
+        }
+        return out.toString();
+    }
+
+    private static String pollStatus(String testId) {
+        try {
+            HttpResponse<String> response = send(
+                    HttpRequest.newBuilder(SUITE_BASE.resolve("/api/info/" + testId)).GET());
+            return JsonScrape.extractStringFieldOrEmpty(response.body(), "status");
+        } catch (Exception e) {
+            return "";
         }
     }
 
